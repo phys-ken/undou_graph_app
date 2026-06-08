@@ -239,6 +239,105 @@ describe('KinematicsProblemGenerator (instance)._splitIntervalBySegments', () =>
   });
 });
 
+// ── _shuffleChoices（グラフ選択肢問題のシャッフル純粋ロジック） ──────
+describe('KinematicsProblemGenerator._shuffleChoices', () => {
+  // ダミーアイテム: 先頭が正答、という _buildChoices と同じ前提で並べる
+  const items = [
+    { id: 'correct', isCorrect: true },
+    { id: 'd1', isCorrect: false },
+    { id: 'd2', isCorrect: false },
+    { id: 'd3', isCorrect: false },
+  ];
+
+  it('同じシードなら常に同じ並び・同じ correctIndex になる（決定論性）', () => {
+    const a = KinematicsProblemGenerator._shuffleChoices(items, 12345);
+    const b = KinematicsProblemGenerator._shuffleChoices(items, 12345);
+    assert.deepEqual(a.indices, b.indices);
+    assert.equal(a.correctIndex, b.correctIndex);
+    assert.deepEqual(a.ordered.map(i => i.id), b.ordered.map(i => i.id));
+  });
+
+  it('シードが異なれば（基本的に）並びも変わる', () => {
+    const a = KinematicsProblemGenerator._shuffleChoices(items, 1);
+    const b = KinematicsProblemGenerator._shuffleChoices(items, 2);
+    assert.notDeepEqual(a.indices, b.indices);
+  });
+
+  it('correctIndex は ordered 配列中の正答の位置と一致する', () => {
+    for (const seed of [1, 42, 999, 123456]) {
+      const { ordered, correctIndex } = KinematicsProblemGenerator._shuffleChoices(items, seed);
+      assert.ok(correctIndex >= 0 && correctIndex < ordered.length, `correctIndex=${correctIndex} が範囲外`);
+      assert.equal(ordered[correctIndex].isCorrect, true);
+      assert.equal(ordered[correctIndex].id, 'correct');
+    }
+  });
+
+  it('シャッフル後も全アイテム（正答+誤答）がすべて含まれる', () => {
+    const { ordered } = KinematicsProblemGenerator._shuffleChoices(items, 777);
+    const ids = ordered.map(i => i.id).sort();
+    assert.deepEqual(ids, ['correct', 'd1', 'd2', 'd3']);
+  });
+
+  it('単一要素（正答のみ・誤答なし）でも破綻しない', () => {
+    const single = [{ id: 'only', isCorrect: true }];
+    const { ordered, correctIndex } = KinematicsProblemGenerator._shuffleChoices(single, 5);
+    assert.equal(ordered.length, 1);
+    assert.equal(correctIndex, 0);
+  });
+});
+
+// ── buildGraphChoiceSeed ───────────────────────────────────────────────
+describe('KinematicsProblemGenerator.buildGraphChoiceSeed', () => {
+  const source = makeGraph([[0, 0], [4, 2], [8, 2]], 'vt', 0);
+  const distractors = [
+    { points: [[0, 0], [4, 1], [8, 1]], kind: 'xt', x0: 0, label: 'B' },
+  ];
+
+  it('同じ入力なら同じシードになる（再現性）', () => {
+    const s1 = KinematicsProblemGenerator.buildGraphChoiceSeed(source, 'vt', 'xt', distractors, 0);
+    const s2 = KinematicsProblemGenerator.buildGraphChoiceSeed(source, 'vt', 'xt', distractors, 0);
+    assert.equal(s1, s2);
+  });
+
+  it('askFor が異なれば（基本的に）シードも変わる', () => {
+    const s1 = KinematicsProblemGenerator.buildGraphChoiceSeed(source, 'vt', 'xt', distractors, 0);
+    const s2 = KinematicsProblemGenerator.buildGraphChoiceSeed(source, 'vt', 'at', distractors, 0);
+    assert.notEqual(s1, s2);
+  });
+
+  it('distractors の内容が異なれば（基本的に）シードも変わる', () => {
+    const other = [{ points: [[0, 0], [4, 5], [8, 5]], kind: 'xt', x0: 0, label: 'B' }];
+    const s1 = KinematicsProblemGenerator.buildGraphChoiceSeed(source, 'vt', 'xt', distractors, 0);
+    const s2 = KinematicsProblemGenerator.buildGraphChoiceSeed(source, 'vt', 'xt', other, 0);
+    assert.notEqual(s1, s2);
+  });
+
+  it('x0 が異なれば（基本的に）シードも変わる', () => {
+    const s1 = KinematicsProblemGenerator.buildGraphChoiceSeed(source, 'vt', 'xt', distractors, 0);
+    const s2 = KinematicsProblemGenerator.buildGraphChoiceSeed(source, 'vt', 'xt', distractors, 5);
+    assert.notEqual(s1, s2);
+  });
+});
+
+// ── _kindLabel ─────────────────────────────────────────────────────────
+describe('KinematicsProblemGenerator._kindLabel', () => {
+  it('xt/vt/at をそれぞれ日本語ラベルに変換する', () => {
+    assert.equal(KinematicsProblemGenerator._kindLabel('xt'), 'x-t（位置-時間）');
+    assert.equal(KinematicsProblemGenerator._kindLabel('vt'), 'v-t（速度-時間）');
+    assert.equal(KinematicsProblemGenerator._kindLabel('at'), 'a-t（加速度-時間）');
+  });
+});
+
+// ── CIRCLED_DIGITS ─────────────────────────────────────────────────────
+describe('KinematicsProblemGenerator.CIRCLED_DIGITS', () => {
+  it('① から始まる丸数字配列を返す（legacy api/serialize.js と同じ規約）', () => {
+    const digits = KinematicsProblemGenerator.CIRCLED_DIGITS;
+    assert.equal(digits[0], '①');
+    assert.equal(digits[1], '②');
+    assert.ok(digits.length >= 10);
+  });
+});
+
 // problems.js は STYLE_PRESETS（styles.js）を直接参照しないため、
 // インスタンス化に必要な最小限のスタブを用意する
 function STYLE_PRESETS_STUB() {

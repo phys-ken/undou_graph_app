@@ -22,6 +22,11 @@ class KinematicsProblemGenerator {
     this.PR    = 2;     // pixelRatio（印刷品質）
   }
 
+  /** 選択肢ラベル用の丸数字（legacy_nami_app の api/serialize.js CIRCLED_DIGITS と同じ規約） */
+  static get CIRCLED_DIGITS() {
+    return ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩','⑪','⑫','⑬','⑭','⑮','⑯','⑰','⑱','⑲','⑳'];
+  }
+
   // ----------------------------------------------------------------
   // キャンバス・レンダラ生成ヘルパー
   // ----------------------------------------------------------------
@@ -197,11 +202,7 @@ class KinematicsProblemGenerator {
       : Kinematics.deriveFromXT(source);
 
     const sourceLabel = sourceKind === 'vt' ? 'v-t（速度-時間）' : 'x-t（位置-時間）';
-    const targetLabels = askFor.map(k => {
-      if (k === 'xt') return 'x-t（位置-時間）';
-      if (k === 'vt') return 'v-t（速度-時間）';
-      return 'a-t（加速度-時間）';
-    });
+    const targetLabels = askFor.map(k => KinematicsProblemGenerator._kindLabel(k));
 
     const questionText =
       `下図は、ある物体の${sourceLabel}グラフである。\n` +
@@ -232,6 +233,145 @@ class KinematicsProblemGenerator {
       question: { text: questionText, canvases: questionCanvases },
       answer:   { text: answerText,   canvases: answerCanvases },
     };
+  }
+
+  // ================================================================
+  // ③ グラフ選択肢型（API 専用 — UI からは生成しない）
+  // ================================================================
+  //
+  // CLAUDE.md / CONTEXT.md の方針:
+  //   「グラフが選択肢になる問題はUIからは作らず、API側でのみ対応する」
+  //   「誤答グラフは API 呼び出し側（AIエージェント）が指定する」
+  // この app の役割は「正答グラフの導出・描画 + 呼び出し側が与えた誤答グラフの
+  // 描画 + 決定論的シードによるシャッフル整形」のみであり、誤答そのものを
+  // 生成するロジックは持たない（教育的に「生徒に手描きさせたい」という理由で
+  // UI には絶対に置かない——ボタンを生やさないことで担保する）。
+
+  /**
+   * グラフ選択肢問題を生成する
+   *
+   * 「下図の [v-t/x-t] グラフに対応する [x-t/v-t/a-t] グラフはどれか」
+   * という形式の多肢選択問題。正答は Kinematics.deriveFromVT/XT で導出し、
+   * 誤答（distractors）は呼び出し側が MotionGraph 形状の JSON で与える
+   * 「生徒が誤って描きそうなグラフ」をそのまま手描き風ポリラインとして描く
+   * （導出エンジンを通さない——もっともらしい誤答に見せることが目的のため）。
+   *
+   * @param {Object} params
+   *   params.source      {MotionGraph} 問題文に示す手描きグラフ（与えられたグラフ）
+   *   params.sourceKind  {'vt'|'xt'}   source の種類
+   *   params.askFor      {'xt'|'vt'|'at'} 選択肢として問う対象（単一）
+   *   params.distractors {Array<Object>} MotionGraph.toJSON() 形状の誤答グラフ JSON 配列
+   *   params.x0          {number} v-t 始点の場合の積分基準点（x-t 導出に必要）
+   *   params.shuffle     {boolean} 選択肢をシャッフルするか（既定 true）
+   * @returns {{
+   *   question: {text, canvases},
+   *   answer:   {text},
+   *   choices:  Array<{canvas, isCorrect, label}>,
+   *   correctIndex: number,
+   *   seed: number,
+   * }}
+   */
+  generateGraphChoice({ source, sourceKind, askFor, distractors = [], x0, shuffle = true }) {
+    if (sourceKind !== source.kind) source.kind = sourceKind;
+    if (sourceKind === 'vt') source.x0 = x0 ?? source.x0 ?? 0;
+
+    const derived = (sourceKind === 'vt')
+      ? Kinematics.deriveFromVT(source)
+      : Kinematics.deriveFromXT(source);
+    const correctCurve = derived[askFor];
+
+    // 誤答グラフを MotionGraph として復元（描画は手描き風ポリライン——
+    // Kinematics.derive* を通さないことで「もっともらしい誤答」の見た目を保つ）
+    const distractorGraphs = distractors.map(json => new MotionGraph().fromJSON(json));
+
+    const sourceLabel = sourceKind === 'vt' ? 'v-t（速度-時間）' : 'x-t（位置-時間）';
+    const targetLabel = KinematicsProblemGenerator._kindLabel(askFor);
+
+    // シャッフル前の並び（順序固定: ① 正答 ② 誤答1 ③ 誤答2 …）と
+    // それぞれの canvas/isCorrect を組み立て、決定論的シードでシャッフルする
+    // （legacy app の _buildChoices / shuffleChoicesWithSeed と同じ考え方）。
+    const items = [
+      { canvas: this._renderGraphCanvas({ curve: correctCurve, kind: askFor }), isCorrect: true },
+      ...distractorGraphs.map(g => ({
+        canvas: this._renderGraphCanvas({ graph: g, kind: askFor }),
+        isCorrect: false,
+      })),
+    ];
+
+    const seed = KinematicsProblemGenerator.buildGraphChoiceSeed(source, sourceKind, askFor, distractors, x0);
+    const { ordered, correctIndex } = shuffle
+      ? KinematicsProblemGenerator._shuffleChoices(items, seed)
+      : { ordered: items, correctIndex: 0 };
+
+    const choices = ordered.map((item, i) => ({
+      canvas: item.canvas,
+      isCorrect: item.isCorrect,
+      label: KinematicsProblemGenerator.CIRCLED_DIGITS[i] || `(${i + 1})`,
+    }));
+
+    const questionText =
+      `下図は、ある物体の${sourceLabel}グラフである。\n` +
+      `この運動に対応する${targetLabel}グラフとして正しいものを、下の①〜${KinematicsProblemGenerator.CIRCLED_DIGITS[choices.length - 1] || `(${choices.length})`}` +
+      `のうちから一つ選べ。`;
+
+    const questionCanvases = [
+      this._renderGraphCanvas({ graph: source, kind: sourceKind }),
+    ];
+
+    const answerText =
+      `正答: ${choices[correctIndex].label}\n` +
+      `${sourceLabel}グラフから導出した${targetLabel}グラフが正しい対応関係である` +
+      (correctCurve && correctCurve.undefinedInstants && correctCurve.undefinedInstants.length > 0
+        ? '（「?」マーカーの時刻は、角の瞬間で値が定義できない「曖昧な瞬間」を表す）。'
+        : '。');
+
+    return {
+      question: { text: questionText, canvases: questionCanvases },
+      answer:   { text: answerText },
+      choices,
+      correctIndex,
+      seed,
+    };
+  }
+
+  /** 'xt'/'vt'/'at' から日本語の表示ラベルを返す（共通化のため切り出し） */
+  static _kindLabel(kind) {
+    if (kind === 'xt') return 'x-t（位置-時間）';
+    if (kind === 'vt') return 'v-t（速度-時間）';
+    return 'a-t（加速度-時間）';
+  }
+
+  /**
+   * グラフ選択肢問題用のシード値を決定論的に作る。
+   * 「与えられたグラフ + その種類 + 問う対象 + 誤答グラフ群 + 積分定数」の
+   * すべてを文字列化してハッシュする — どれか一つでも変われば違うシャッフルになる
+   * （buildSeed と同じ djb2 ハッシュ規約を流用し、専用の文字列構成のみ追加する）。
+   */
+  static buildGraphChoiceSeed(source, sourceKind, askFor, distractors, x0) {
+    const seedSource =
+      `graphChoice|${JSON.stringify(source.toJSON())}|${sourceKind}|${askFor}|` +
+      `${JSON.stringify(distractors)}|x0=${x0 ?? ''}`;
+    return SeededRandom.hashString(seedSource);
+  }
+
+  /**
+   * 選択肢配列をシード値で決定論的にシャッフルする（純粋関数・テスト容易）。
+   * 入力は「先頭が正答」の前提（_buildChoices と同じ並び）。
+   * legacy の Exporter.shuffleChoicesWithSeed と同じ考え方をこちらに移植し、
+   * Canvas 非依存にすることで Node テスト環境でも検証できるようにした。
+   *
+   * @param {Array<{isCorrect: boolean, ...}>} items 先頭が正答の配列
+   * @param {number} seed
+   * @returns {{ordered: Array, correctIndex: number, indices: number[]}}
+   *   ordered: シャッフル後の配列
+   *   correctIndex: シャッフル後に正答が来たインデックス
+   *   indices: シャッフル後の i 番目が元の何番目だったか
+   */
+  static _shuffleChoices(items, seed) {
+    const indices = SeededRandom.seededShuffleIndices(items.length, seed);
+    const ordered = indices.map(i => items[i]);
+    const correctIndex = indices.indexOf(0);
+    return { ordered, correctIndex, indices };
   }
 
   // ================================================================
