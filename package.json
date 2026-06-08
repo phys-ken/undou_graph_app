@@ -1,0 +1,22 @@
+{
+  "name": "undou-graph-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "高校物理基礎向け 運動グラフ（x-t / v-t / a-t）設問作成ツール。ブラウザで手描きしたグラフから対応グラフを自動導出し、PNG/PDF/DOCX/ZIPで設問を出力する。",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node api_server.js",
+    "test": "node --test tests/motion.test.js tests/kinematics.test.js tests/renderer.test.js tests/random.test.js",
+    "smoke": "node api/smoke.js"
+  },
+  "dependencies": {
+    "canvas": "^3.0.0",
+    "cors": "^2.8.5",
+    "docx": "^8.5.0",
+    "express": "^4.21.0",
+    "jszip": "^3.10.1",
+    "zod": "^3.23.8"
+  }
+}

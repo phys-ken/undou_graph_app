@@ -1,0 +1,16 @@
+# Reference materials (not part of the app)
+legacy_nami_app/
+*.pdf
+pdf_pages/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Generated output
+api_output/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
