@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>運動グラフ　設問作成ソフト</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ========================================================
+     ヘッダー
+     ======================================================== -->
+<header>
+  <h1>運動グラフ&nbsp;&nbsp;設問作成ソフト</h1>
+  <a href="https://github.com/phys-ken/undou_graph_app" target="_blank" rel="noopener noreferrer" class="header-github">README / GitHub</a>
+  <span class="header-sub">高校物理基礎 授業用ツール（x-t / v-t / a-t）</span>
+</header>
+
+<div class="app-container">
+
+  <!-- ======================================================
+       設定パネル（左）
+       ====================================================== -->
+  <aside class="settings-panel">
+
+    <!-- グラフ種類選択 -->
+    <div class="settings-group">
+      <h3>グラフ種類</h3>
+      <p class="apply-hint">手描きするグラフを選択します（もう一方は自動導出されます）</p>
+      <div class="graph-mode-row">
+        <button id="graphModeBtn_vt" class="dir-btn active" onclick="App.setGraphMode('vt')">v-t を描く</button>
+        <button id="graphModeBtn_xt" class="dir-btn"        onclick="App.setGraphMode('xt')">x-t を描く</button>
+      </div>
+    </div>
+
+    <!-- グリッド設定 -->
+    <div class="settings-group">
+      <h3>グリッド設定</h3>
+      <div class="setting-row">
+        <label>t 軸</label>
+        <div class="range-inputs">
+          <input type="number" id="tMin" value="0" step="1">
+          <span class="sep">〜</span>
+          <input type="number" id="tMax" value="10" step="1">
+        </div>
+      </div>
+      <div class="setting-row">
+        <label id="valAxisLabel">v 軸</label>
+        <div class="range-inputs">
+          <input type="number" id="valMin" value="-2" step="0.5">
+          <span class="sep">〜</span>
+          <input type="number" id="valMax" value="2" step="0.5">
+        </div>
+      </div>
+
+      <!-- 初期位置 x0（v-t モードのときのみ意味を持つ） -->
+      <div class="setting-row" id="x0Row">
+        <label>初期位置 x0</label>
+        <input type="number" id="x0" value="0" step="0.5">
+        <span class="sep">m</span>
+      </div>
+
+      <!-- 1目盛サイズ（任意、空欄=自動） -->
+      <details class="cell-size-details">
+        <summary>1目盛サイズ（任意）</summary>
+        <p class="cell-size-hint">空欄で自動（デフォルト 580×200px のCanvas）。15〜120 の範囲で指定可。</p>
+        <div class="setting-row">
+          <label>t</label>
+          <input type="number" id="cellPxW" placeholder="自動" min="15" max="120" step="1" class="cell-size-input">
+          <span class="sep">px / 目盛</span>
+        </div>
+        <div class="setting-row">
+          <label>値</label>
+          <input type="number" id="cellPxH" placeholder="自動" min="15" max="120" step="1" class="cell-size-input">
+          <span class="sep">px / 目盛</span>
+        </div>
+      </details>
+
+      <p class="apply-hint">軸範囲・1目盛りサイズをCanvasに反映します</p>
+      <div class="btn-row">
+        <button class="btn-primary" onclick="App.applyGridConfig()">グリッドを適用</button>
+      </div>
+    </div>
+
+    <!-- 描画スタイル設定 -->
+    <div class="settings-group">
+      <h3>描画スタイル</h3>
+      <div class="style-preset-row">
+        <button id="presetBtn_bw"    class="style-preset-btn active" onclick="App.applyStylePreset('bw')"    title="印刷・配布向け（白黒・線種で区別）">白黒</button>
+        <button id="presetBtn_color" class="style-preset-btn"        onclick="App.applyStylePreset('color')" title="画面表示向け（x-t=青／v-t=緑／a-t=赤）">カラー</button>
+      </div>
+    </div>
+
+    <!-- グラフクリア -->
+    <div class="settings-group">
+      <button class="btn-danger" onclick="App.clearGraph()">グラフをクリア</button>
+    </div>
+
+  </aside>
+
+  <!-- ========================================================
+       メインコンテンツ（右）
+       ======================================================== -->
+  <main class="main-content">
+
+    <!-- タブ -->
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="editor">グラフ編集</button>
+      <button class="tab-btn"        data-tab="derived">自動導出グラフ</button>
+    </div>
+
+    <!-- ====================================================
+         タブ①: グラフ編集
+         ==================================================== -->
+    <div id="tab-editor" class="tab-content active">
+
+      <div class="editor-section">
+        <div class="editor-section-header">
+          <h3 id="editorTitle">v-t グラフを描く</h3>
+        </div>
+        <p class="editor-hint">格子点を左クリック: 頂点を追加・移動（ドラッグ可）　／　右クリック: 頂点を削除</p>
+        <canvas id="editorCanvas"></canvas>
+      </div>
+
+    </div>
+
+    <!-- ====================================================
+         タブ②: 自動導出グラフ
+         ==================================================== -->
+    <div id="tab-derived" class="tab-content">
+
+      <div class="derived-toolbar">
+        <span>手描きしたグラフから x-t / v-t / a-t を自動的に計算して表示します。</span>
+        <button class="btn-primary" onclick="App.renderDerivedGraphs()">更新</button>
+      </div>
+
+      <div class="derived-grid">
+        <div class="derived-item">
+          <h3>x-t グラフ（位置）</h3>
+          <canvas id="derivedCanvasXT"></canvas>
+        </div>
+        <div class="derived-item">
+          <h3>v-t グラフ（速度）</h3>
+          <canvas id="derivedCanvasVT"></canvas>
+        </div>
+        <div class="derived-item">
+          <h3>a-t グラフ（加速度）</h3>
+          <canvas id="derivedCanvasAT"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+</div>
+
+<!-- ============================================================
+     確認・通知ダイアログ（カスタム実装）
+     ブラウザネイティブの confirm()/alert() はテスト自動化ツール
+     （Chrome 拡張機能等）の操作をブロックして停止させてしまうため、
+     自前の DOM モーダルで代替する（App._confirm / App._alert）。
+     ============================================================ -->
+<div id="dialogOverlay" class="dialog-overlay" style="display:none">
+  <div class="dialog-box">
+    <p id="dialogMessage" class="dialog-message"></p>
+    <div class="dialog-footer" id="dialogFooter">
+      <!-- JS でボタンを生成 -->
+    </div>
+  </div>
+</div>
+
+<!-- ライブラリ（CDN） -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+        crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"
+        crossorigin="anonymous"></script>
+
+<!-- アプリスクリプト -->
+<script src="js/random.js"></script>
+<script src="js/styles.js"></script>
+<script src="js/motion.js"></script>
+<script src="js/kinematics.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/exporter.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

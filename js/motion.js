@@ -46,24 +46,28 @@ class MotionGraph {
   }
 
   /**
-   * 時刻 t における値（線形補間、範囲外は 0）
+   * 時刻 t における値（線形補間）
    *
    * 端部の扱い: Wave.getY の「端部ランプ」（最初/最後の点の外側で 0 へ
-   * 線形に近づくランプ）をそのまま踏襲する。エディタのスナップショット
-   * 表示（getSnapshot）と値が完全に一致する方が、急激な値の変化（断絶）
-   * を防げて視覚的に自然なため、運動グラフでも同じ挙動を採用する。
+   * 線形に近づくランプ）は移植しない。波の場合は媒質が静止状態（y=0）
+   * へ戻る物理的描写として自然だったが、運動グラフでは「描いていない
+   * 区間」に勝手な値（0 への直線的な変化）を補って見せると、教員が
+   * 描いた覚えのない運動を示してしまい誤解を招く。また Kinematics の
+   * 導出（curveFromGraph）は頂点間の区間しか扱わないため、ランプ付きの
+   * 表示と導出結果が食い違う問題もあった。
+   *
+   * そのため、最初の点より前・最後の点より後は「未定義（描かれていない）」
+   * として null を返す。範囲内は頂点間の線形補間。
+   *
+   * @returns {number|null} 範囲外なら null
    */
   valueAt(t) {
-    if (this.points.length === 0) return 0;
+    if (this.points.length === 0) return null;
 
     const first = this.points[0];
     const last  = this.points[this.points.length - 1];
 
-    // 端部ランプ: [first.t-1, first.t) で 0→first.value、(last.t, last.t+1] で last.value→0
-    if (t < first.t - 1 || t > last.t + 1) return 0;
-    if (t < first.t) return (t - (first.t - 1)) * first.value;
-    if (t > last.t)  return (last.t + 1 - t)    * last.value;
-
+    if (t < first.t || t > last.t) return null;
     if (t === first.t) return first.value;
     if (t === last.t)  return last.value;
 
@@ -75,14 +79,15 @@ class MotionGraph {
         return a.value + ratio * (b.value - a.value);
       }
     }
-    return 0;
+    return null;
   }
 
   /**
-   * [tMin, tMax] の描画用点列を返す
+   * [tMin, tMax] の描画用点列を返す（頂点が描かれている区間のみ）
    * 整数格子点と実際の頂点位置を含めて折れ線を正確に描画できるようにする。
-   * Wave.getSnapshot と異なり、波の伝播（時間シフト）は存在しないため、
-   * 単純に「整数格子点 ∪ 頂点の t」を集めて value を評価するだけでよい。
+   * 最初/最後の頂点より外側は valueAt が null を返すため自然に除外され、
+   * 「描いた区間だけが折れ線として表示される」（= Kinematics の導出対象と
+   * 完全に一致する）。
    */
   getSnapshot(tMin, tMax) {
     const tSet = new Set();
@@ -94,7 +99,8 @@ class MotionGraph {
     return [...tSet]
       .sort((a, b) => a - b)
       .filter(t => t >= tMin && t <= tMax)
-      .map(t => ({ t, value: this.valueAt(t) }));
+      .map(t => ({ t, value: this.valueAt(t) }))
+      .filter(p => p.value !== null);
   }
 
   /**

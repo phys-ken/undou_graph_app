@@ -86,18 +86,18 @@ describe('MotionGraph.removePoint', () => {
 
 // ── valueAt ────────────────────────────────────────────────────────────
 describe('MotionGraph.valueAt', () => {
-  it('点なしは 0 を返す', () => {
-    assert.equal(makeGraph().valueAt(5), 0);
+  it('点なしは null を返す', () => {
+    assert.equal(makeGraph().valueAt(5), null);
   });
 
-  it('範囲外（左）は 0', () => {
+  it('範囲外（左）は null（未定義＝描かれていない区間）', () => {
     const g = makeGraph([[3, 1], [6, 1]]);
-    assert.equal(g.valueAt(1), 0);
+    assert.equal(g.valueAt(1), null);
   });
 
-  it('範囲外（右）は 0', () => {
+  it('範囲外（右）は null（未定義＝描かれていない区間）', () => {
     const g = makeGraph([[3, 1], [6, 1]]);
-    assert.equal(g.valueAt(9), 0);
+    assert.equal(g.valueAt(9), null);
   });
 
   it('左端の点を正確に返す', () => {
@@ -126,25 +126,31 @@ describe('MotionGraph.valueAt', () => {
     assert.equal(g.valueAt(6), 1);
   });
 
-  // ── 端部ランプ（Wave.getY と同じ挙動を踏襲）────────────────────────
-  it('左端ランプ: [first.t-1, first.t) で 0→first.value に線形補間する', () => {
+  // ── 端部の扱い（end-ramp は移植しない）──────────────────────────────
+  // Wave.getY は最初/最後の頂点の外側で 0 へ線形に近づく「端部ランプ」を
+  // 持っていたが、運動グラフでは「描いていない区間」に勝手な値（0 への
+  // 直線的な変化）を補って見せると、教員が描いた覚えのない運動を表示
+  // してしまい、かつ Kinematics.curveFromGraph の導出結果（頂点間のみ
+  // を扱う）と食い違う。そのため最初/最後の頂点の外側は null（未定義）
+  // とし、表示と導出の対象区間を完全に一致させる。
+  it('最初の頂点より前は null（未定義）', () => {
     const g = makeGraph([[2, 2], [4, 0]]);
-    assert.equal(g.valueAt(1),   0);
-    assert.equal(g.valueAt(1.5), 1);
+    assert.equal(g.valueAt(1),   null);
+    assert.equal(g.valueAt(1.5), null);
     assert.equal(g.valueAt(2),   2);
   });
 
-  it('右端ランプ: (last.t, last.t+1] で last.value→0 に線形補間する', () => {
+  it('最後の頂点より後は null（未定義）', () => {
     const g = makeGraph([[2, 0], [4, 2]]);
     assert.equal(g.valueAt(4),   2);
-    assert.equal(g.valueAt(4.5), 1);
-    assert.equal(g.valueAt(5),   0);
+    assert.equal(g.valueAt(4.5), null);
+    assert.equal(g.valueAt(5),   null);
   });
 
-  it('ランプ範囲外はまだ 0 を返す', () => {
+  it('範囲から離れた t も null', () => {
     const g = makeGraph([[3, 1], [6, 1]]);
-    assert.equal(g.valueAt(1), 0);
-    assert.equal(g.valueAt(9), 0);
+    assert.equal(g.valueAt(1), null);
+    assert.equal(g.valueAt(9), null);
   });
 });
 
@@ -208,7 +214,7 @@ describe('MotionGraph.clear', () => {
     const g = makeGraph([[1, 1], [3, 2], [5, 0]]);
     g.clear();
     assert.equal(g.points.length, 0);
-    assert.equal(g.valueAt(3), 0);
+    assert.equal(g.valueAt(3), null);
   });
 });
 
