@@ -144,4 +144,85 @@ const Kinematics = {
 
     return { xt, vt, at };
   },
+
+  /**
+   * StepMotionGraph（階段状 v-t）を Curve（vt）に変換する。
+   *
+   * 各区間 [tStart+i, tStart+i+1) はそのまま定数セグメント
+   * { t0, t1, c0: values[i], c1: 0, c2: 0 } になる。
+   * 隣接する区間の値が異なる内部境界では速度が意図的に不連続へ
+   * ジャンプするため、その時刻を discontinuities に記録する
+   * （値が等しい境界では「見た目には繋がっている」ため記録しない）。
+   *
+   * @param {StepMotionGraph} stepGraph
+   * @returns {Curve}
+   */
+  curveFromStepGraph(stepGraph) {
+    const curve = this._emptyCurve('vt');
+    if (stepGraph.isEmpty()) return curve;
+
+    const { tStart, values } = stepGraph;
+    values.forEach((v, i) => {
+      curve.segments.push({ t0: tStart + i, t1: tStart + i + 1, c0: v, c1: 0, c2: 0 });
+      if (i < values.length - 1 && values[i] !== values[i + 1]) {
+        curve.discontinuities.push(tStart + i + 1);
+      }
+    });
+
+    return curve;
+  },
+
+  /**
+   * 階段状 v-t グラフ（StepMotionGraph）から { vt, xt, at } を導出する。
+   *
+   * - vt: curveFromStepGraph そのもの（区分定数、区間境界に意図的な不連続）。
+   * - at: 各区間内では加速度 0 の定数セグメント。vt が不連続にジャンプする
+   *       境界では、速度が一瞬で変化する＝加速度が撃力的（インパルス的）で
+   *       あり物理的に定義できないため、deriveFromXT の角の扱いと全く同じ
+   *       ロジックで discontinuities と undefinedInstants の両方に
+   *       同じ時刻を記録する（描画側で破線/グレー表示等の特別扱いができる
+   *       ように）。値が変化しない境界（discontinuities に含まれない境界）
+   *       では加速度はそのまま 0 で連続なので、何も記録しない。
+   * - xt: 各区間内で v(t) = values[i]（一定）を積分するため、
+   *       deriveFromVT の m=0 の場合に相当する単純な直線になる：
+   *       x(t) = xStart + values[i]*(t - t0) 、
+   *       セグメントは { t0, t1, c0: xStart, c1: values[i], c2: 0 }。
+   *       xStart は deriveFromVT と同じ式 xStart + v0*dt + (m/2)*dt*dt
+   *       （m=0 なので xStart + values[i]*dt）で連続的に引き継ぐ。
+   *       位置は常に連続なので discontinuities・undefinedInstants は
+   *       空のまま（角があっても deriveFromVT 同様 x-t 側では未定義扱いしない）。
+   *
+   * @param {StepMotionGraph} stepGraph
+   * @returns {{ vt: Curve, xt: Curve, at: Curve }}
+   */
+  deriveFromVTStep(stepGraph) {
+    const vt = this.curveFromStepGraph(stepGraph);
+    const at = this._emptyCurve('at');
+    const xt = this._emptyCurve('xt');
+
+    if (vt.segments.length === 0) {
+      return { vt, xt, at };
+    }
+
+    let xStart = stepGraph.x0 ?? 0;
+    const discontinuitySet = new Set(vt.discontinuities);
+
+    vt.segments.forEach((seg) => {
+      const v0 = seg.c0;
+      const dt = seg.t1 - seg.t0;
+
+      // a-t: 各区間内は定数 0
+      at.segments.push({ t0: seg.t0, t1: seg.t1, c0: 0, c1: 0, c2: 0 });
+      if (discontinuitySet.has(seg.t0)) {
+        at.discontinuities.push(seg.t0);
+        at.undefinedInstants.push(seg.t0);
+      }
+
+      // x-t: 区分積分（連続）。m=0 なので x(t) = xStart + v0*(t-t0)
+      xt.segments.push({ t0: seg.t0, t1: seg.t1, c0: xStart, c1: v0, c2: 0 });
+      xStart = xStart + v0 * dt;
+    });
+
+    return { vt, xt, at };
+  },
 };

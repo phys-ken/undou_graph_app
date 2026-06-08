@@ -8,6 +8,7 @@ const vm = require('node:vm');
 
 vm.runInThisContext(readFileSync(join(__dirname, '..', 'js', 'motion.js'), 'utf8'));
 vm.runInThisContext(readFileSync(join(__dirname, '..', 'js', 'kinematics.js'), 'utf8'));
+vm.runInThisContext(readFileSync(join(__dirname, '..', 'js', 'step-motion.js'), 'utf8'));
 
 const EPS = 1e-9;
 function close(a, b, msg) {
@@ -19,6 +20,14 @@ function makeGraph(points, kind, x0 = 0) {
   g.kind = kind;
   g.x0 = x0;
   points.forEach(([t, value]) => g.setPoint(t, value));
+  return g;
+}
+
+function makeStepGraph(tStart, values, x0 = 0) {
+  const g = new StepMotionGraph();
+  g.tStart = tStart;
+  g.values = [...values];
+  g.x0 = x0;
   return g;
 }
 
@@ -282,5 +291,177 @@ describe('Kinematics.deriveFromXT - エッジケース', () => {
     // 内部の角 t=3 のみ記録される
     assert.deepEqual(vt.discontinuities, [3]);
     assert.deepEqual(at.undefinedInstants, [3]);
+  });
+});
+
+// ── curveFromStepGraph ─────────────────────────────────────────────────
+describe('Kinematics.curveFromStepGraph', () => {
+  it('空グラフは空セグメントの曲線を返す', () => {
+    const g = new StepMotionGraph();
+    const c = Kinematics.curveFromStepGraph(g);
+    assert.equal(c.kind, 'vt');
+    assert.deepEqual(c.segments, []);
+    assert.deepEqual(c.discontinuities, []);
+    assert.deepEqual(c.undefinedInstants, []);
+  });
+
+  it('区間ごとに定数セグメントを生成する', () => {
+    const g = makeStepGraph(2, [1, 3, -2]);
+    const c = Kinematics.curveFromStepGraph(g);
+    assert.equal(c.segments.length, 3);
+
+    close(c.segments[0].t0, 2); close(c.segments[0].t1, 3);
+    close(c.segments[0].c0, 1); close(c.segments[0].c1, 0); close(c.segments[0].c2, 0);
+
+    close(c.segments[1].t0, 3); close(c.segments[1].t1, 4);
+    close(c.segments[1].c0, 3);
+
+    close(c.segments[2].t0, 4); close(c.segments[2].t1, 5);
+    close(c.segments[2].c0, -2);
+  });
+
+  it('値が変化する境界にのみ不連続を記録する（等しい境界には記録しない）', () => {
+    // [1, 1, 3, 3, 3, -1] : 境界 t=1(変化なし), t=2(1→3 変化), t=3,4(変化なし), t=5(3→-1 変化)
+    const g = makeStepGraph(0, [1, 1, 3, 3, 3, -1]);
+    const c = Kinematics.curveFromStepGraph(g);
+    assert.deepEqual(c.discontinuities, [2, 5]);
+  });
+
+  it('全区間で値が同じなら不連続なし', () => {
+    const g = makeStepGraph(0, [2, 2, 2]);
+    const c = Kinematics.curveFromStepGraph(g);
+    assert.deepEqual(c.discontinuities, []);
+  });
+
+  it('全境界で値が変わるなら全境界に不連続を記録する', () => {
+    const g = makeStepGraph(0, [1, -1, 1, -1]);
+    const c = Kinematics.curveFromStepGraph(g);
+    assert.deepEqual(c.discontinuities, [1, 2, 3]);
+  });
+});
+
+// ── deriveFromVTStep ───────────────────────────────────────────────────
+describe('Kinematics.deriveFromVTStep - 空グラフ', () => {
+  it('空セグメントの曲線を3つ返す', () => {
+    const g = new StepMotionGraph();
+    const { vt, xt, at } = Kinematics.deriveFromVTStep(g);
+    assert.deepEqual(vt.segments, []);
+    assert.deepEqual(xt.segments, []);
+    assert.deepEqual(at.segments, []);
+  });
+});
+
+describe('Kinematics.deriveFromVTStep - vt は curveFromStepGraph と一致する', () => {
+  it('セグメント・不連続が同じ', () => {
+    const g = makeStepGraph(0, [1, 1, 3, -1], 0);
+    const expected = Kinematics.curveFromStepGraph(g);
+    const { vt } = Kinematics.deriveFromVTStep(g);
+    assert.deepEqual(vt, expected);
+  });
+});
+
+describe('Kinematics.deriveFromVTStep - 全区間で値が同じ（不連続なし）', () => {
+  const g = makeStepGraph(0, [2, 2, 2], 0);
+  const { vt, xt, at } = Kinematics.deriveFromVTStep(g);
+
+  it('vt に不連続がない', () => {
+    assert.deepEqual(vt.discontinuities, []);
+  });
+
+  it('at は全区間で 0、不連続・未定義点もなし', () => {
+    assert.equal(at.segments.length, 3);
+    for (const seg of at.segments) {
+      close(seg.c0, 0); close(seg.c1, 0); close(seg.c2, 0);
+    }
+    assert.deepEqual(at.discontinuities, []);
+    assert.deepEqual(at.undefinedInstants, []);
+  });
+
+  it('xt は連続な直線で x0 から始まる（速度一定なので傾き2の直線）', () => {
+    assert.equal(xt.segments.length, 3);
+    close(xt.segments[0].c0, 0); // x0
+    close(xt.segments[0].c1, 2);
+    close(evalSeg(xt.segments[0], 1), 2);
+    close(xt.segments[1].c0, 2);
+    close(evalSeg(xt.segments[1], 2), 4);
+    close(xt.segments[2].c0, 4);
+    close(evalSeg(xt.segments[2], 3), 6);
+    assert.deepEqual(xt.discontinuities, []);
+    assert.deepEqual(xt.undefinedInstants, []);
+  });
+});
+
+describe('Kinematics.deriveFromVTStep - 交互に値が変わる（全境界でジャンプ）', () => {
+  // [1, -1, 1] : tStart=0 → 境界 t=1, t=2 で共にジャンプ
+  const g = makeStepGraph(0, [1, -1, 1], 10);
+  const { vt, xt, at } = Kinematics.deriveFromVTStep(g);
+
+  it('vt の不連続は両方の境界に記録される', () => {
+    assert.deepEqual(vt.discontinuities, [1, 2]);
+  });
+
+  it('at は両方の境界を discontinuities と undefinedInstants の両方に持つ', () => {
+    assert.deepEqual(at.discontinuities, [1, 2]);
+    assert.deepEqual(at.undefinedInstants, [1, 2]);
+  });
+
+  it('at は各区間内で 0', () => {
+    for (const seg of at.segments) {
+      close(seg.c0, 0);
+    }
+  });
+
+  it('xt は連続（x0=10 から積分、傾きは各区間の速度）', () => {
+    // セグメント0: x = 10 + 1*(t-0), t∈[0,1] → x(1) = 11
+    // セグメント1: x = 11 + (-1)*(t-1), t∈[1,2] → x(2) = 10
+    // セグメント2: x = 10 + 1*(t-2), t∈[2,3] → x(3) = 11
+    const s0 = xt.segments[0];
+    const s1 = xt.segments[1];
+    const s2 = xt.segments[2];
+    close(s0.c0, 10); close(s0.c1, 1);
+    close(evalSeg(s0, 1), 11);
+    close(s1.c0, 11); close(s1.c1, -1);
+    close(evalSeg(s1, 2), 10);
+    close(s2.c0, 10); close(s2.c1, 1);
+    close(evalSeg(s2, 3), 11);
+    // 連続性: 各セグメントの開始値が前セグメントの終端評価値と一致
+    close(s1.c0, evalSeg(s0, s0.t1));
+    close(s2.c0, evalSeg(s1, s1.t1));
+    assert.deepEqual(xt.discontinuities, []);
+    assert.deepEqual(xt.undefinedInstants, []);
+  });
+});
+
+describe('Kinematics.deriveFromVTStep - 一部の境界のみジャンプ（混在）', () => {
+  // [2, 2, 5, 5, -1] : tStart=3 → 境界 t=4(同じ), t=5(2→5 ジャンプ),
+  //                    t=6(同じ), t=7(5→-1 ジャンプ)
+  const g = makeStepGraph(3, [2, 2, 5, 5, -1], 0);
+  const { vt, xt, at } = Kinematics.deriveFromVTStep(g);
+
+  it('vt の不連続はジャンプする境界のみ', () => {
+    assert.deepEqual(vt.discontinuities, [5, 7]);
+  });
+
+  it('at の discontinuities / undefinedInstants はジャンプ境界のみ、同じ値', () => {
+    assert.deepEqual(at.discontinuities, [5, 7]);
+    assert.deepEqual(at.undefinedInstants, [5, 7]);
+    assert.deepEqual(at.discontinuities, at.undefinedInstants);
+  });
+
+  it('値が変わらない境界 t=4, t=6 は記録されない', () => {
+    assert.ok(!at.discontinuities.includes(4));
+    assert.ok(!at.discontinuities.includes(6));
+    assert.ok(!at.undefinedInstants.includes(4));
+    assert.ok(!at.undefinedInstants.includes(6));
+  });
+
+  it('xt は連続で x0=0 から始まる', () => {
+    for (let i = 0; i < xt.segments.length - 1; i++) {
+      close(xt.segments[i + 1].c0, evalSeg(xt.segments[i], xt.segments[i].t1),
+        `セグメント${i}と${i + 1}の接続点で x が連続`);
+    }
+    close(xt.segments[0].c0, 0); // x0
+    assert.deepEqual(xt.discontinuities, []);
+    assert.deepEqual(xt.undefinedInstants, []);
   });
 });
