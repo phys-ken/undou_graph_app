@@ -13,8 +13,8 @@ npm install && npm start  # ブラウザUI(:8000) + REST API(:8001)
 ## テスト
 
 ```bash
-npm test                          # motion/kinematics/renderer/random ユニットテスト
-node --test tests/api.test.js     # API バックエンドテスト
+npm test                          # motion/kinematics/renderer/problems ユニットテスト
+npm run test:api                  # API バックエンドテスト
 ```
 
 ## アーキテクチャ概要
