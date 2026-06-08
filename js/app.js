@@ -10,7 +10,7 @@ const App = {
   // ------------------------------------------------------------------
   // 状態
   // ------------------------------------------------------------------
-  graphMode:  'vt',   // 'vt' | 'xt' — 手描き対象（もう一方は自動導出表示に回る）
+  graphMode:  'vt',   // 'vt' | 'xt' | 'vt-step' — 手描き対象（他は自動導出表示に回る）
   gridConfig: { tMin: 0, tMax: 10, valMin: -2, valMax: 2 },
   cellSize:   { w: null, h: null }, // null=自動（580×200 デフォルト）
   styleMode:  'bw',   // 'bw' | 'color'
@@ -31,8 +31,12 @@ const App = {
     this._loadStyleMode();
     this._loadX0();
 
-    this.graph = new MotionGraph();
-    this.graph.kind = this.graphMode;
+    if (this.graphMode === 'vt-step') {
+      this.graph = new StepMotionGraph();
+    } else {
+      this.graph = new MotionGraph();
+      this.graph.kind = this.graphMode;
+    }
     this.graph.x0 = this.x0;
     this._loadGraphData();
 
@@ -131,7 +135,7 @@ const App = {
   _loadGraphMode() {
     try {
       const saved = localStorage.getItem(this._KEYS.graphMode);
-      if (saved === 'vt' || saved === 'xt') this.graphMode = saved;
+      if (saved === 'vt' || saved === 'xt' || saved === 'vt-step') this.graphMode = saved;
     } catch (_) {}
   },
 
@@ -141,6 +145,7 @@ const App = {
 
   _syncGraphModeButtons() {
     document.getElementById('graphModeBtn_vt')?.classList.toggle('active', this.graphMode === 'vt');
+    document.getElementById('graphModeBtn_vtstep')?.classList.toggle('active', this.graphMode === 'vt-step');
     document.getElementById('graphModeBtn_xt')?.classList.toggle('active', this.graphMode === 'xt');
     const label = document.getElementById('valAxisLabel');
     if (label) label.textContent = this.graphMode === 'xt' ? 'x 軸' : 'v 軸';
@@ -148,12 +153,15 @@ const App = {
 
   _syncX0Visibility() {
     const row = document.getElementById('x0Row');
-    if (row) row.style.display = this.graphMode === 'vt' ? 'flex' : 'none';
+    if (row) row.style.display = (this.graphMode === 'vt' || this.graphMode === 'vt-step') ? 'flex' : 'none';
   },
 
   _updateEditorTitle() {
     const el = document.getElementById('editorTitle');
-    if (el) el.textContent = this.graphMode === 'xt' ? 'x-t グラフを描く' : 'v-t グラフを描く';
+    if (!el) return;
+    if (this.graphMode === 'xt') el.textContent = 'x-t グラフを描く';
+    else if (this.graphMode === 'vt-step') el.textContent = 'v-t グラフを描く（階段状）';
+    else el.textContent = 'v-t グラフを描く';
   },
 
   /**
@@ -171,8 +179,12 @@ const App = {
     this.graphMode = mode;
     this._saveGraphMode();
 
-    this.graph = new MotionGraph();
-    this.graph.kind = mode;
+    if (mode === 'vt-step') {
+      this.graph = new StepMotionGraph();
+    } else {
+      this.graph = new MotionGraph();
+      this.graph.kind = mode;
+    }
     this.graph.x0 = this.x0;
     this._saveGraphData();
 
@@ -388,12 +400,19 @@ const App = {
       stylePreset: this._activeStylePreset(),
     }));
 
+    const EditorClass = (this.graphMode === 'vt-step') ? StepGraphEditor : MotionGraphEditor;
+
+    if (this.editor && !(this.editor instanceof EditorClass)) {
+      this.editor.destroy();
+      this.editor = null;
+    }
+
     if (this.editor) {
       this.editor.graph    = this.graph;
       this.editor.renderer = renderer;
       this.editor.render();
     } else {
-      this.editor = new MotionGraphEditor(canvas, this.graph, renderer, () => this._saveGraphData());
+      this.editor = new EditorClass(canvas, this.graph, renderer, () => this._saveGraphData());
     }
   },
 
@@ -494,12 +513,15 @@ const App = {
     let derived;
     if (this.graphMode === 'vt') {
       derived = Kinematics.deriveFromVT(this.graph);
+    } else if (this.graphMode === 'vt-step') {
+      derived = Kinematics.deriveFromVTStep(this.graph);
     } else {
       derived = Kinematics.deriveFromXT(this.graph);
     }
 
     const preset = this._activeStylePreset();
     const handDrawnRange = { yMin: g.valMin, yMax: g.valMax };
+    const isHandDrawnVT = (this.graphMode === 'vt' || this.graphMode === 'vt-step');
 
     const specs = [
       {
@@ -514,7 +536,7 @@ const App = {
         curve: derived.vt,
         kind: 'vt',
         yLabel: '速度 v [m/s]',
-        range: (this.graphMode === 'vt') ? handDrawnRange : this._autoValueRange(derived.vt, tMin, tMax),
+        range: isHandDrawnVT ? handDrawnRange : this._autoValueRange(derived.vt, tMin, tMax),
       },
       {
         canvasId: 'derivedCanvasAT',
@@ -613,7 +635,7 @@ const App = {
     let options;
 
     if (category === 'conversion') {
-      options = (kind === 'vt')
+      options = (kind === 'vt' || kind === 'vt-step')
         ? [{ value: 'vt2xtat', label: 'v-t から x-t・a-t を導出させる' }]
         : [{ value: 'xt2vtat', label: 'x-t から v-t・a-t を導出させる' }];
     } else {
@@ -659,7 +681,7 @@ const App = {
     let result;
     try {
       if (category === 'conversion') {
-        const askFor = (this.graph.kind === 'vt') ? ['xt', 'at'] : ['vt', 'at'];
+        const askFor = (this.graph.kind === 'vt' || this.graph.kind === 'vt-step') ? ['xt', 'at'] : ['vt', 'at'];
         result = generator.generateGraphConversion({
           source: this.graph,
           sourceKind: this.graph.kind,

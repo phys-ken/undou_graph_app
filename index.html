@@ -30,6 +30,7 @@
       <p class="apply-hint">手描きするグラフを選択します（もう一方は自動導出されます）</p>
       <div class="graph-mode-row">
         <button id="graphModeBtn_vt" class="dir-btn active" onclick="App.setGraphMode('vt')">v-t を描く</button>
+        <button id="graphModeBtn_vtstep" class="dir-btn"    onclick="App.setGraphMode('vt-step')">v-t（階段状）</button>
         <button id="graphModeBtn_xt" class="dir-btn"        onclick="App.setGraphMode('xt')">x-t を描く</button>
       </div>
     </div>
@@ -218,9 +219,11 @@
 <script src="js/random.js"></script>
 <script src="js/styles.js"></script>
 <script src="js/motion.js"></script>
+<script src="js/step-motion.js"></script>
 <script src="js/kinematics.js"></script>
 <script src="js/renderer.js"></script>
 <script src="js/editor.js"></script>
+<script src="js/step-editor.js"></script>
 <script src="js/exporter.js"></script>
 <script src="js/problems.js"></script>
 <script src="js/app.js"></script>
