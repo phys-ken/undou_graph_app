@@ -19,6 +19,8 @@ const App = {
   graph:  null,  // MotionGraph（手描き対象）
   editor: null,  // MotionGraphEditor
 
+  currentProblem: null, // 直近に生成した設問（{ question:{text,canvases}, answer:{text,canvases} }）
+
   // ------------------------------------------------------------------
   // 初期化
   // ------------------------------------------------------------------
@@ -40,6 +42,7 @@ const App = {
     this._syncStylePresetButtons();
     this._syncX0Visibility();
     this._updateEditorTitle();
+    this._syncProblemSubtypeOptions();
 
     this._setupEditor();
 
@@ -177,6 +180,7 @@ const App = {
     this._syncX0Visibility();
     this._updateEditorTitle();
     this._syncGridInputs();
+    this._syncProblemSubtypeOptions();
     this._setupEditor();
   },
 
@@ -415,6 +419,7 @@ const App = {
     if (clickedBtn) clickedBtn.classList.add('active');
 
     if (tabName === 'derived') this.renderDerivedGraphs();
+    if (tabName === 'problems') this._syncProblemSubtypeOptions();
   },
 
   // ------------------------------------------------------------------
@@ -585,6 +590,174 @@ const App = {
       }
     });
     return best;
+  },
+
+  // ------------------------------------------------------------------
+  // 設問生成タブ
+  // ------------------------------------------------------------------
+
+  /**
+   * 「問題種類」セレクトの値に応じて「設問」セレクトの選択肢を構築する。
+   * 有効な選択肢は手描き対象（App.graph.kind）に依存する:
+   *   - グラフ変換: 手描きが v-t なら「v-t → x-t・a-t」、x-t なら「x-t → v-t・a-t」
+   *   - 数値・記述: acceleration / displacement / direction / describe
+   *     （v-t・x-t どちらでも Kinematics が v-t を導出できるため共通で有効）
+   */
+  _syncProblemSubtypeOptions() {
+    const catEl = document.getElementById('problemCategory');
+    const subEl = document.getElementById('problemSubtype');
+    if (!catEl || !subEl) return;
+
+    const category = catEl.value;
+    const kind = this.graph ? this.graph.kind : this.graphMode;
+    let options;
+
+    if (category === 'conversion') {
+      options = (kind === 'vt')
+        ? [{ value: 'vt2xtat', label: 'v-t から x-t・a-t を導出させる' }]
+        : [{ value: 'xt2vtat', label: 'x-t から v-t・a-t を導出させる' }];
+    } else {
+      options = [
+        { value: 'acceleration', label: '加速度を求める（数値）' },
+        { value: 'displacement', label: '変位を求める（数値・面積）' },
+        { value: 'direction',    label: '逆向きに運動する区間を答える（記述）' },
+        { value: 'describe',     label: '運動の様子を説明する（記述）' },
+      ];
+    }
+
+    const prevValue = subEl.value;
+    subEl.innerHTML = '';
+    options.forEach(opt => {
+      const el = document.createElement('option');
+      el.value = opt.value;
+      el.textContent = opt.label;
+      subEl.appendChild(el);
+    });
+    // 同じ種類のサブタイプが残っていれば選択を維持する
+    if (options.some(o => o.value === prevValue)) subEl.value = prevValue;
+  },
+
+  /**
+   * 「生成」ボタン押下時の処理。
+   * グラフ未描画ならアラートを出して中断し、選択中のカテゴリ・サブタイプから
+   * KinematicsProblemGenerator を呼び分けて結果を描画する。
+   */
+  async generateProblem() {
+    if (!this.graph || this.graph.isEmpty()) {
+      await this._alert('グラフが空です。先にグラフを描いてください。');
+      return;
+    }
+
+    const category = document.getElementById('problemCategory').value;
+    const subtype  = document.getElementById('problemSubtype').value;
+    const generator = new KinematicsProblemGenerator({
+      gridConfig:  this._editorGridConfig(),
+      styleConfig: this._activeStylePreset(),
+      cellSize:    this.cellSize,
+    });
+
+    let result;
+    try {
+      if (category === 'conversion') {
+        const askFor = (this.graph.kind === 'vt') ? ['xt', 'at'] : ['vt', 'at'];
+        result = generator.generateGraphConversion({
+          source: this.graph,
+          sourceKind: this.graph.kind,
+          askFor,
+          x0: this.x0,
+        });
+      } else {
+        result = generator.generateNumeric({
+          source: this.graph,
+          sourceKind: this.graph.kind,
+          subtype,
+          params: {},
+        });
+      }
+    } catch (e) {
+      console.error(e);
+      await this._alert('設問の生成中にエラーが発生しました: ' + e.message);
+      return;
+    }
+
+    this.currentProblem = result;
+    this._renderProblemOutput(result);
+    document.getElementById('problemExportControls').style.display = 'flex';
+  },
+
+  /**
+   * 設問結果（{question:{text,canvases}, answer:{text,canvases}}）を
+   * 画面に描画する。各 Canvas には個別の画像DLボタンを付与する
+   * （legacy app の _renderProblemOutput / _appendCanvases と同じ構成）。
+   */
+  _renderProblemOutput(result) {
+    const container = document.getElementById('problemOutput');
+    container.innerHTML = '';
+
+    const qSection = document.createElement('div');
+    qSection.className = 'output-section';
+    qSection.innerHTML = '<h3>【問題】</h3>';
+    const qText = document.createElement('p');
+    qText.className = 'problem-text';
+    qText.textContent = result.question.text;
+    qSection.appendChild(qText);
+    this._appendProblemCanvases(qSection, result.question.canvases, 'q');
+    container.appendChild(qSection);
+
+    const aSection = document.createElement('div');
+    aSection.className = 'output-section answer-section';
+    aSection.innerHTML = '<h3>【解答】</h3>';
+    const aText = document.createElement('p');
+    aText.className = 'answer-note';
+    aText.textContent = result.answer.text;
+    aSection.appendChild(aText);
+    this._appendProblemCanvases(aSection, result.answer.canvases, 'a');
+    container.appendChild(aSection);
+  },
+
+  /** Canvas 配列を「画像DL」ボタン付きで追加する（legacy app._appendCanvases と同じ構成） */
+  _appendProblemCanvases(section, canvases, prefix) {
+    (canvases || []).forEach((canvas, i) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'canvas-wrapper';
+      const dlBtn = document.createElement('button');
+      dlBtn.type = 'button';
+      dlBtn.textContent = '画像DL';
+      dlBtn.className = 'dl-btn';
+      dlBtn.onclick = () => Exporter.downloadCanvasPNG(canvas, `${prefix}_${i + 1}.png`);
+      wrapper.appendChild(canvas);
+      wrapper.appendChild(dlBtn);
+      section.appendChild(wrapper);
+    });
+  },
+
+  /** 問題・解答の全 Canvas を個別 PNG として連続ダウンロードする */
+  downloadProblemPNG() {
+    if (!this.currentProblem) return;
+    const r = this.currentProblem;
+    r.question.canvases.forEach((c, i) => Exporter.downloadCanvasPNG(c, `mondai_q_${i + 1}.png`));
+    r.answer.canvases.forEach((c, i) => Exporter.downloadCanvasPNG(c, `mondai_a_${i + 1}.png`));
+  },
+
+  /** 問題のみの PDF をダウンロードする */
+  async downloadProblemPDF() {
+    if (!this.currentProblem) return;
+    const r = this.currentProblem;
+    const sections = [
+      { label: '問題', text: r.question.text, canvases: r.question.canvases },
+    ];
+    await Exporter.generatePDF('運動グラフ 問題', sections, 'mondai_question.pdf');
+  },
+
+  /** 問題＋解答の PDF をダウンロードする */
+  async downloadAnswerPDF() {
+    if (!this.currentProblem) return;
+    const r = this.currentProblem;
+    const sections = [
+      { label: '問題', text: r.question.text, canvases: r.question.canvases },
+      { label: '解答', text: r.answer.text,   canvases: r.answer.canvases },
+    ];
+    await Exporter.generatePDF('運動グラフ 解答', sections, 'mondai_answer.pdf');
   },
 };
 

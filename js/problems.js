@@ -1,0 +1,633 @@
+/**
+ * KinematicsProblemGenerator - 運動グラフ設問テンプレート生成
+ *
+ * legacy_nami_app の ProblemGenerator（波の重ね合わせ用）の構造をフォークし、
+ * 運動グラフ（x-t / v-t / a-t）向けに作り直したもの。
+ *
+ * 設問は2系統:
+ *   ① グラフ変換型  generateGraphConversion — 手描きグラフから別の運動グラフを導出させる
+ *   ② 数値・記述型  generateNumeric         — 自由記述の数値・説明問題（選択肢化しない）
+ *
+ * 出力 Canvas は常に pixelRatio=2（印刷・PDF品質）。画面表示は style.width で
+ * 論理サイズに縮小する（legacy と同じ方式）。
+ *
+ * 戻り値の形式は { question: { text, canvases }, answer: { text, canvases } }
+ * に統一する（legacy の questionText/questionCanvases 形式とは異なるが、
+ * 運動グラフは「問題1systemにつき多くて2〜3 Canvas」とシンプルなため、
+ * ネストした方が呼び出し側の見通しが良いと判断した — 設計上の意図的な相違）。
+ */
+class KinematicsProblemGenerator {
+  constructor(state) {
+    this.state = state; // { gridConfig, styleConfig, cellSize? }
+    this.PR    = 2;     // pixelRatio（印刷品質）
+  }
+
+  // ----------------------------------------------------------------
+  // キャンバス・レンダラ生成ヘルパー
+  // ----------------------------------------------------------------
+
+  /** メインのグラフ用 Canvas 寸法（論理px）。cellSize 未指定なら 580×200 */
+  _mainSize() {
+    return MotionGraphRenderer.computeCanvasSize(this.state.gridConfig, this.state.cellSize);
+  }
+
+  /** 任意寸法で Canvas を生成（dispW/dispH 省略時は _mainSize()） */
+  _makeCanvas(dispW, dispH) {
+    if (dispW === undefined || dispH === undefined) {
+      const s = this._mainSize();
+      dispW = s.width;
+      dispH = s.height;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width        = dispW * this.PR;
+    canvas.height       = dispH * this.PR;
+    canvas.style.width  = `${dispW}px`;
+    canvas.style.height = `${dispH}px`;
+    return canvas;
+  }
+
+  /**
+   * gridConfig + styleConfig から MotionGraphRenderer を組み立てる
+   * （App._setupEditor / App.renderDerivedGraphs と同じ慣習: gridStyle と
+   * stylePreset の両方を渡す）
+   */
+  _makeRenderer(canvas, configOverride = {}) {
+    const sc = this.state.styleConfig;
+    return new MotionGraphRenderer(
+      canvas,
+      Object.assign(
+        {},
+        this.state.gridConfig,
+        configOverride,
+        { pixelRatio: this.PR, gridStyle: sc ? sc.grid : undefined, stylePreset: sc }
+      )
+    );
+  }
+
+  /**
+   * 手描きグラフ（単一カーブ）を描く際の固定スタイルを返す
+   *
+   * STYLE_PRESETS の xt/vt/at 別スタイル（bw では破線パターンで区別）は、
+   * 複数カーブが同一 Canvas に並ぶ「導出グラフ」表示でこそ意味を持つ。
+   * 設問の「元にするグラフ」は単一カーブなので、それを適用すると
+   * v-t を選んだだけで常に破線表示になってしまう（MotionGraphEditor と
+   * 同じ問題 — editor.js _curveStyle() 参照）。そのため種類によらず
+   * 固定の実線スタイルを使う。
+   */
+  static _handDrawnStyle() {
+    return { color: '#1e3a5f', lineWidth: 2.5 };
+  }
+
+  /** 軸ラベル（日本語の物理記法）を運動グラフの種類から決める */
+  static _yLabel(kind) {
+    if (kind === 'xt') return '位置 x [m]';
+    if (kind === 'vt') return '速度 v [m/s]';
+    return '加速度 a [m/s²]';
+  }
+
+  /**
+   * Curve を Canvas に描画する（カーブ本体 + リサー + 未定義マーカー）。
+   * 運動グラフ特有の要素（discontinuities / undefinedInstants）を
+   * 一貫した見た目で扱うための共通ヘルパー。
+   *
+   * @param {MotionGraphRenderer} r
+   * @param {Curve} curve
+   * @param {number} tMin
+   * @param {number} tMax
+   */
+  _drawCurveWithMarkers(r, curve, tMin, tMax) {
+    const sc = this.state.styleConfig || {};
+    if (!curve || !curve.segments || curve.segments.length === 0) return;
+
+    r.drawCurve(curve, sc[curve.kind] || {}, tMin, tMax);
+
+    (curve.discontinuities || []).forEach(t => {
+      const before = this._curveValueApproachingFromLeft(curve, t);
+      const after  = this._curveValueApproachingFromRight(curve, t);
+      if (before !== null && after !== null) {
+        r.drawDiscontinuity(t, before, after, sc.riser || {});
+      }
+    });
+
+    // 未定義の瞬間（例: x-t の角から逆算した a-t）は破線・グレーで
+    // 「曖昧」だと明示する（CLAUDE.md の設計ルール — 非表示にはしない）
+    (curve.undefinedInstants || []).forEach(t => {
+      r.drawUndefinedMarker(t, sc.undefinedMark || {});
+    });
+  }
+
+  /** 不連続点 t の直前セグメントの終端値（リサー描画用。App._curveValueApproachingFromLeft と同じロジック） */
+  _curveValueApproachingFromLeft(curve, t) {
+    let best = null;
+    curve.segments.forEach(seg => {
+      if (seg.t1 <= t + 1e-9 && seg.t1 >= t - 1e-6) {
+        const dt = seg.t1 - seg.t0;
+        best = seg.c0 + seg.c1 * dt + seg.c2 * dt * dt;
+      }
+    });
+    return best;
+  }
+
+  /** 不連続点 t の直後セグメントの始端値（リサー描画用） */
+  _curveValueApproachingFromRight(curve, t) {
+    let best = null;
+    curve.segments.forEach(seg => {
+      if (seg.t0 >= t - 1e-9 && seg.t0 <= t + 1e-6) {
+        if (best === null) best = seg.c0;
+      }
+    });
+    return best;
+  }
+
+  /**
+   * グラフ（手描き graph または導出 curve）を描いた Canvas を返す共通ヘルパー
+   * @param {Object} opts
+   *   opts.curve  {Curve}        描画する導出済みカーブ（あれば優先）
+   *   opts.graph  {MotionGraph}  手描きグラフ（curve 未指定時、ポリラインとして描く）
+   *   opts.kind   {'xt'|'vt'|'at'} 軸ラベル決定用
+   *   opts.label  {string}       右上に表示する補助ラベル（凡例代わりの説明文）
+   */
+  _renderGraphCanvas(opts) {
+    const { curve, graph, kind } = opts;
+    const canvas = this._makeCanvas();
+    const r = this._makeRenderer(canvas);
+    const c = r.config;
+    r.clear();
+    r.drawGrid();
+    r.drawAxes({ xLabel: '時刻 t [s]', yLabel: KinematicsProblemGenerator._yLabel(kind) });
+
+    if (curve) {
+      this._drawCurveWithMarkers(r, curve, c.xMin, c.xMax);
+    } else if (graph && !graph.isEmpty()) {
+      r.drawPolyline(graph.getSnapshot(c.xMin, c.xMax), KinematicsProblemGenerator._handDrawnStyle());
+    }
+    return canvas;
+  }
+
+  /** 空白の解答欄（グリッド＋軸のみ）を描いた Canvas を返す */
+  _renderBlank(kind) {
+    const canvas = this._makeCanvas();
+    const r = this._makeRenderer(canvas);
+    r.clear();
+    r.drawGrid();
+    r.drawAxes({ xLabel: '時刻 t [s]', yLabel: KinematicsProblemGenerator._yLabel(kind) });
+    return canvas;
+  }
+
+  // ================================================================
+  // ① グラフ変換型
+  // ================================================================
+
+  /**
+   * 手描きグラフから別の運動グラフ（複数可）を導出させる設問を生成する
+   *
+   * @param {Object} params
+   *   params.source     {MotionGraph} 手描きグラフ
+   *   params.sourceKind {'vt'|'xt'}   手描きグラフの種類（= source.kind と一致させること）
+   *   params.askFor     {Array<'xt'|'vt'|'at'>} 学生に描かせる対象（複数可）
+   *   params.x0         {number} v-t 始点の場合の積分基準点（x-t 導出に必要）
+   * @returns {{ question: {text, canvases}, answer: {text, canvases} }}
+   */
+  generateGraphConversion({ source, sourceKind, askFor, x0 }) {
+    if (sourceKind !== source.kind) source.kind = sourceKind;
+    if (sourceKind === 'vt') source.x0 = x0 ?? source.x0 ?? 0;
+
+    const derived = (sourceKind === 'vt')
+      ? Kinematics.deriveFromVT(source)
+      : Kinematics.deriveFromXT(source);
+
+    const sourceLabel = sourceKind === 'vt' ? 'v-t（速度-時間）' : 'x-t（位置-時間）';
+    const targetLabels = askFor.map(k => {
+      if (k === 'xt') return 'x-t（位置-時間）';
+      if (k === 'vt') return 'v-t（速度-時間）';
+      return 'a-t（加速度-時間）';
+    });
+
+    const questionText =
+      `下図は、ある物体の${sourceLabel}グラフである。\n` +
+      `この運動について、${targetLabels.join('・')}グラフをそれぞれ描け。`;
+
+    const questionCanvases = [
+      this._renderGraphCanvas({ graph: source, kind: sourceKind }),
+      ...askFor.map(k => this._renderBlank(k)),
+    ];
+
+    const answerNotes = [];
+    askFor.forEach(k => {
+      if (k === 'at' && derived.at.undefinedInstants && derived.at.undefinedInstants.length > 0) {
+        answerNotes.push(
+          '※ a-t グラフの「?」マーカーの時刻は、x-t の角（速度が不連続にジャンプする点）に' +
+          '対応しており、加速度の値が定義できない（撃力的に変化する）瞬間を表す。'
+        );
+      }
+    });
+
+    const answerText =
+      `${targetLabels.join('・')}グラフ（解答例）\n` +
+      (answerNotes.length > 0 ? answerNotes.join('\n') : '上の手描きグラフから直接導出した結果。');
+
+    const answerCanvases = askFor.map(k => this._renderGraphCanvas({ curve: derived[k], kind: k }));
+
+    return {
+      question: { text: questionText, canvases: questionCanvases },
+      answer:   { text: answerText,   canvases: answerCanvases },
+    };
+  }
+
+  // ================================================================
+  // ② 数値・記述型（自由記述のみ）
+  // ================================================================
+
+  /**
+   * 数値・記述問題を生成する
+   *
+   * @param {Object} params
+   *   params.source     {MotionGraph}
+   *   params.sourceKind {'vt'|'xt'}
+   *   params.subtype    {'acceleration'|'displacement'|'direction'|'describe'}
+   *   params.params     {Object} サブタイプ別の追加パラメータ（interval 等）。
+   *                       省略時は SeededRandom で決定論的にランダム選択する。
+   * @returns {{ question: {text, canvases}, answer: {text, canvases} }}
+   */
+  generateNumeric({ source, sourceKind, subtype, params = {} }) {
+    if (sourceKind !== source.kind) source.kind = sourceKind;
+    const derived = (sourceKind === 'vt')
+      ? Kinematics.deriveFromVT(source)
+      : Kinematics.deriveFromXT(source);
+
+    switch (subtype) {
+      case 'acceleration': return this._generateAcceleration(source, derived, params);
+      case 'displacement': return this._generateDisplacement(source, derived, params);
+      case 'direction':    return this._generateDirection(source, derived, params);
+      case 'describe':     return this._generateDescribe(source, derived, params);
+      default:
+        throw new Error(`未知の数値・記述問題サブタイプ: ${subtype}`);
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // サブタイプ共通: 区間選択（決定論的乱数）
+  // ----------------------------------------------------------------
+
+  /**
+   * シード値を「グラフの内容 + サブタイプ + 補助情報」から決定論的に作る。
+   * 同じグラフ・同じ条件で再生成すれば同じ区間が選ばれる
+   * （legacy app の _buildChoicesSeedSource と同じ考え方）。
+   */
+  static buildSeed(graph, subtype, extra = '') {
+    return SeededRandom.hashString(`${subtype}|${JSON.stringify(graph.toJSON())}|${extra}`);
+  }
+
+  /**
+   * 区分カーブ（vt や at）からランダムに1セグメント区間を選ぶ。
+   * params.interval = {t0, t1} が明示指定されていればそれを優先する。
+   *
+   * @param {Curve} curve   区間候補を持つカーブ（通常は vt または at）
+   * @param {Object} params { interval?: {t0, t1} }
+   * @param {number} seed
+   * @returns {{t0:number, t1:number}|null}
+   */
+  static pickInterval(curve, params, seed) {
+    if (params && params.interval) return params.interval;
+    if (!curve || !curve.segments || curve.segments.length === 0) return null;
+    const idx = Math.floor(SeededRandom.mulberry32(seed)() * curve.segments.length);
+    const seg = curve.segments[Math.min(idx, curve.segments.length - 1)];
+    return { t0: seg.t0, t1: seg.t1 };
+  }
+
+  // ----------------------------------------------------------------
+  // 数値・記述: acceleration（加速度を求める）
+  // ----------------------------------------------------------------
+  _generateAcceleration(source, derived, params) {
+    const seed = KinematicsProblemGenerator.buildSeed(source, 'acceleration', JSON.stringify(params));
+    const interval = KinematicsProblemGenerator.pickInterval(derived.at, params, seed);
+    if (!interval) {
+      throw new Error('加速度を計算できる区間がありません。グラフを描いてください。');
+    }
+    const { t0, t1 } = interval;
+    const a = KinematicsProblemGenerator._segmentValueAt(derived.at, (t0 + t1) / 2);
+
+    const questionText =
+      `下図は、ある物体の${source.kind === 'vt' ? 'v-t' : 'x-t'} グラフである。\n` +
+      `t = ${KinematicsProblemGenerator._fmt(t0)} 〜 ${KinematicsProblemGenerator._fmt(t1)} s の間の加速度を求めよ。`;
+    const questionCanvases = [this._renderGraphCanvas({ graph: source, kind: source.kind })];
+
+    const seg = KinematicsProblemGenerator._segmentAt(derived.vt, (t0 + t1) / 2);
+    const calcText = (seg !== null)
+      ? `加速度 a = (速度の変化量) ÷ (経過時間)\n` +
+        `  = (${KinematicsProblemGenerator._fmt(KinematicsProblemGenerator._segmentValueAt(derived.vt, t1))} ` +
+        `− ${KinematicsProblemGenerator._fmt(KinematicsProblemGenerator._segmentValueAt(derived.vt, t0))}) ÷ ` +
+        `(${KinematicsProblemGenerator._fmt(t1)} − ${KinematicsProblemGenerator._fmt(t0)})\n` +
+        `  = ${KinematicsProblemGenerator._fmt(a)} m/s²`
+      : `a = ${KinematicsProblemGenerator._fmt(a)} m/s²`;
+
+    return {
+      question: { text: questionText, canvases: questionCanvases },
+      answer:   { text: `a = ${KinematicsProblemGenerator._fmt(a)} m/s²\n${calcText}`, canvases: [] },
+    };
+  }
+
+  // ----------------------------------------------------------------
+  // 数値・記述: displacement（変位を求める = v-t の面積）
+  // ----------------------------------------------------------------
+  _generateDisplacement(source, derived, params) {
+    const seed = KinematicsProblemGenerator.buildSeed(source, 'displacement', JSON.stringify(params));
+    const vt = derived.vt;
+    if (!vt || !vt.segments || vt.segments.length === 0) {
+      throw new Error('変位を計算できる区間がありません。グラフを描いてください。');
+    }
+
+    // params.interval 指定時はその区間、それ以外は手描き全体の範囲（全変位）を対象にする
+    const interval = (params && params.interval)
+      ? params.interval
+      : { t0: vt.segments[0].t0, t1: vt.segments[vt.segments.length - 1].t1 };
+
+    // 区間をセグメント境界 + 符号反転点（ゼロクロス）で分割し、それぞれの
+    // 符号付き面積を積分で求める。1区間内で v の符号が変わる場合に
+    // 単純に積分すると正負が打ち消し合って「面積の合計」という直感と
+    // ズレるため、塗り分け（drawFilledArea）・計算式の両方で分割して示す。
+    const subIntervals = this._splitIntervalBySigns(vt, this._splitIntervalBySegments(vt, interval));
+    const parts = subIntervals.map(iv => ({
+      ...iv,
+      area: KinematicsProblemGenerator._integrateSegmentArea(vt, iv.t0, iv.t1),
+    }));
+    const total = parts.reduce((s, p) => s + p.area, 0);
+
+    const questionText =
+      `下図は、ある物体の${source.kind === 'vt' ? 'v-t' : 'x-t'} グラフである。\n` +
+      `t = ${KinematicsProblemGenerator._fmt(interval.t0)} 〜 ${KinematicsProblemGenerator._fmt(interval.t1)} s の間の変位を求めよ。`;
+    const questionCanvases = [this._renderGraphCanvas({ graph: source, kind: source.kind })];
+
+    // v-t グラフ上に符号付き面積を塗りつぶして可視化（面積=変位）
+    const answerCanvas = this._makeCanvas();
+    const r = this._makeRenderer(answerCanvas);
+    const c = r.config;
+    r.clear();
+    r.drawGrid();
+    r.drawAxes({ xLabel: '時刻 t [s]', yLabel: KinematicsProblemGenerator._yLabel('vt') });
+    this._drawCurveWithMarkers(r, vt, c.xMin, c.xMax);
+    const sc = this.state.styleConfig || {};
+    r.drawFilledArea(vt, parts.map(p => ({ t0: p.t0, t1: p.t1 })), sc.fill || {});
+
+    const calcLines = parts.map((p, i) =>
+      `  区間${i + 1}（t=${KinematicsProblemGenerator._fmt(p.t0)}〜${KinematicsProblemGenerator._fmt(p.t1)}）: ` +
+      `${KinematicsProblemGenerator._fmt(p.area)} m`
+    );
+    const calcText = (parts.length > 1)
+      ? `各区間の符号付き面積（速度が負の区間はマイナス）を合計する。\n` +
+        calcLines.join('\n') + `\n  合計: ` +
+        `${parts.map(p => KinematicsProblemGenerator._fmt(p.area)).join(' + ')} = ${KinematicsProblemGenerator._fmt(total)} m`
+      : `変位 = 面積 = ${KinematicsProblemGenerator._fmt(total)} m`;
+
+    return {
+      question: { text: questionText, canvases: questionCanvases },
+      answer:   { text: `変位 = ${KinematicsProblemGenerator._fmt(total)} m\n${calcText}`, canvases: [answerCanvas] },
+    };
+  }
+
+  /** 区間 [t0,t1] を vt のセグメント境界で分割した部分区間配列を返す */
+  _splitIntervalBySegments(curve, interval) {
+    const cuts = new Set([interval.t0, interval.t1]);
+    curve.segments.forEach(seg => {
+      if (seg.t0 > interval.t0 - 1e-9 && seg.t0 < interval.t1 - 1e-9) cuts.add(seg.t0);
+      if (seg.t1 > interval.t0 + 1e-9 && seg.t1 < interval.t1 + 1e-9) cuts.add(seg.t1);
+    });
+    const sorted = [...cuts].sort((a, b) => a - b);
+    const result = [];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      if (sorted[i + 1] - sorted[i] > 1e-9) result.push({ t0: sorted[i], t1: sorted[i + 1] });
+    }
+    return result.length > 0 ? result : [{ t0: interval.t0, t1: interval.t1 }];
+  }
+
+  /**
+   * 各部分区間をさらに「v の符号が変わる時刻（ゼロクロス）」で分割する。
+   * v-t が1セグメント内で正→負（または負→正）に変わる場合、その区間を
+   * そのまま積分すると正負の寄与が打ち消し合い、「符号付き面積の合計」
+   * という説明と数値が一致しなくなる。ゼロクロスで割ることで、
+   * 各部分区間が常に同符号になり、塗り分け（drawFilledArea）・
+   * 計算式の表示の両方で物理的に正しい説明ができる。
+   *
+   * @param {Curve} vt
+   * @param {Array<{t0,t1}>} intervals
+   * @returns {Array<{t0,t1}>}
+   */
+  _splitIntervalBySigns(vt, intervals) {
+    const result = [];
+    intervals.forEach(iv => {
+      const v0 = KinematicsProblemGenerator._segmentValueAt(vt, iv.t0);
+      const v1 = KinematicsProblemGenerator._segmentValueAt(vt, iv.t1);
+      const seg = KinematicsProblemGenerator._segmentAt(vt, (iv.t0 + iv.t1) / 2);
+
+      const signChanges = (v0 > 1e-9 && v1 < -1e-9) || (v0 < -1e-9 && v1 > 1e-9);
+      if (signChanges && seg && Math.abs(seg.c1) > 1e-12) {
+        const dtCross = -seg.c0 / seg.c1;
+        const tCross  = seg.t0 + dtCross;
+        if (tCross > iv.t0 + 1e-9 && tCross < iv.t1 - 1e-9) {
+          result.push({ t0: iv.t0, t1: tCross });
+          result.push({ t0: tCross, t1: iv.t1 });
+          return;
+        }
+      }
+      result.push(iv);
+    });
+    return result;
+  }
+
+  /**
+   * カーブ（区分多項式）の [t0,t1] 区間の積分値（=符号付き面積）を解析的に求める。
+   * セグメント内 v(t) = c0 + c1*dt + c2*dt^2 （dt = t - segT0）の不定積分は
+   * c0*dt + c1/2*dt^2 + c2/3*dt^3。区間が複数セグメントにまたがる場合は
+   * セグメントごとに積分して合計する（呼び出し側で境界をすでに分割している前提だが、
+   * 念のため複数セグメント対応にしておく）。
+   */
+  static _integrateSegmentArea(curve, t0, t1) {
+    let total = 0;
+    curve.segments.forEach(seg => {
+      const a = Math.max(seg.t0, t0);
+      const b = Math.min(seg.t1, t1);
+      if (b <= a) return;
+      const da = a - seg.t0;
+      const db = b - seg.t0;
+      const F = (dt) => seg.c0 * dt + (seg.c1 / 2) * dt * dt + (seg.c2 / 3) * dt * dt * dt;
+      total += F(db) - F(da);
+    });
+    return total;
+  }
+
+  // ----------------------------------------------------------------
+  // 数値・記述: direction（速度が負になる区間 = 逆向きに運動する区間）
+  // ----------------------------------------------------------------
+  _generateDirection(source, derived, params) {
+    const vt = derived.vt;
+    const negativeIntervals = KinematicsProblemGenerator.findNegativeIntervals(vt);
+
+    const questionText =
+      `下図は、ある物体の${source.kind === 'vt' ? 'v-t' : 'x-t'} グラフである。\n` +
+      `この物体が逆向きに運動している（速度が負である）区間はどこか、答えよ。`;
+    const questionCanvases = [this._renderGraphCanvas({ graph: source, kind: source.kind })];
+
+    const answerText = (negativeIntervals.length === 0)
+      ? '速度が負になる区間はない（常に同じ向きに運動している、または静止している）。'
+      : '速度が負になる区間: ' +
+        negativeIntervals.map(iv =>
+          `t = ${KinematicsProblemGenerator._fmt(iv.t0)} 〜 ${KinematicsProblemGenerator._fmt(iv.t1)} s`
+        ).join('、');
+
+    return {
+      question: { text: questionText, canvases: questionCanvases },
+      answer:   { text: answerText, canvases: [] },
+    };
+  }
+
+  /**
+   * v-t カーブから速度が負（v < 0）になる区間を求める（純粋関数・テスト容易）
+   * 区分一次（c2=0）の vt セグメントに対して、符号が変わる場合はゼロクロス時刻で分割する。
+   * @param {Curve} vt
+   * @returns {Array<{t0:number, t1:number}>}
+   */
+  static findNegativeIntervals(vt) {
+    if (!vt || !vt.segments) return [];
+    const result = [];
+    vt.segments.forEach(seg => {
+      const v0 = seg.c0;
+      const v1 = seg.c0 + seg.c1 * (seg.t1 - seg.t0);
+      const negAtStart = v0 < -1e-9;
+      const negAtEnd   = v1 < -1e-9;
+
+      if (negAtStart && negAtEnd) {
+        result.push({ t0: seg.t0, t1: seg.t1 });
+      } else if (negAtStart !== negAtEnd && Math.abs(seg.c1) > 1e-12) {
+        // ゼロクロス時刻 = -c0/c1 (dt 基準)
+        const dtCross = -seg.c0 / seg.c1;
+        const tCross  = seg.t0 + dtCross;
+        if (negAtStart) result.push({ t0: seg.t0, t1: tCross });
+        else            result.push({ t0: tCross, t1: seg.t1 });
+      }
+      // 両端とも非負ならその区間は含めない
+    });
+
+    // 隣接する区間を結合（境界がほぼ一致する場合）
+    const merged = [];
+    result.forEach(iv => {
+      const last = merged[merged.length - 1];
+      if (last && Math.abs(last.t1 - iv.t0) < 1e-9) {
+        last.t1 = iv.t1;
+      } else {
+        merged.push({ ...iv });
+      }
+    });
+    return merged;
+  }
+
+  // ----------------------------------------------------------------
+  // 数値・記述: describe（運動の様子を説明する模範解答テキスト生成）
+  // ----------------------------------------------------------------
+  _generateDescribe(source, derived, params) {
+    const seed = KinematicsProblemGenerator.buildSeed(source, 'describe', JSON.stringify(params));
+    const interval = KinematicsProblemGenerator.pickInterval(derived.vt, params, seed);
+    if (!interval) {
+      throw new Error('説明できる区間がありません。グラフを描いてください。');
+    }
+    const { t0, t1 } = interval;
+
+    const questionText =
+      `下図は、ある物体の${source.kind === 'vt' ? 'v-t' : 'x-t'} グラフである。\n` +
+      `t = ${KinematicsProblemGenerator._fmt(t0)} 〜 ${KinematicsProblemGenerator._fmt(t1)} s の間の運動の様子を説明せよ。`;
+    const questionCanvases = [this._renderGraphCanvas({ graph: source, kind: source.kind })];
+
+    const v0 = KinematicsProblemGenerator._segmentValueAt(derived.vt, t0);
+    const v1 = KinematicsProblemGenerator._segmentValueAt(derived.vt, t1);
+    const a  = KinematicsProblemGenerator._segmentValueAt(derived.at, (t0 + t1) / 2);
+
+    const answerText = KinematicsProblemGenerator.describeMotion(v0, v1, a, t0, t1);
+
+    return {
+      question: { text: questionText, canvases: questionCanvases },
+      answer:   { text: answerText, canvases: [] },
+    };
+  }
+
+  /**
+   * 区間の始点速度・終点速度・加速度から、高校物理基礎レベルの
+   * 「運動の様子」模範解答テキスト（日本語）を生成する（純粋関数・テスト容易）。
+   *
+   * 場合分け（高校生にとって直感的な分類を優先）:
+   *   - |v0|, |v1| ともに ~0           → 静止している
+   *   - a ~ 0                          → 等速直線運動（向きは v の符号で判定）
+   *   - a ≠ 0 かつ |v| が増加          → （向き）に加速しながら進む運動（速さが増加）
+   *   - a ≠ 0 かつ |v| が減少          → （向き）に進みながら減速する運動（速さが減少）
+   *   - v の符号が反転                 → 一度停止して逆向きに運動を始める
+   *
+   * @returns {string}
+   */
+  static describeMotion(v0, v1, a, t0, t1) {
+    const EPS = 1e-9;
+    const fmt = KinematicsProblemGenerator._fmt;
+    const dirOf = (v) => (v > EPS ? '正の向き（+）' : (v < -EPS ? '負の向き（-）' : null));
+
+    const span = `t = ${fmt(t0)} 〜 ${fmt(t1)} s の間、`;
+
+    // 静止
+    if (Math.abs(v0) < EPS && Math.abs(v1) < EPS && Math.abs(a) < EPS) {
+      return `${span}物体は静止している（速度 v = 0 のまま変化しない）。`;
+    }
+
+    // 等速直線運動（加速度がほぼ0）
+    if (Math.abs(a) < EPS) {
+      const dir = dirOf(v0) || dirOf(v1);
+      return `${span}物体は ${dir} に、速さ ${fmt(Math.abs(v0))} m/s の等速直線運動をしている` +
+             `（加速度 a = 0、速度が一定）。`;
+    }
+
+    // 速度の符号が反転（向きが変わる）
+    if ((v0 > EPS && v1 < -EPS) || (v0 < -EPS && v1 > EPS)) {
+      const dir0 = dirOf(v0);
+      const dir1 = dirOf(v1);
+      return `${span}物体は初め ${dir0} に進んでいたが、加速度 a = ${fmt(a)} m/s² で減速して` +
+             `一旦停止し、その後 ${dir1} に運動を始める（向きが反転する）。`;
+    }
+
+    const dir = dirOf(v1) || dirOf(v0);
+    const speeding = Math.abs(v1) > Math.abs(v0) + EPS;
+    const slowing  = Math.abs(v1) < Math.abs(v0) - EPS;
+
+    if (speeding) {
+      return `${span}物体は ${dir} に、加速度 a = ${fmt(a)} m/s² で速さを増しながら運動している` +
+             `（速さ ${fmt(Math.abs(v0))} → ${fmt(Math.abs(v1))} m/s に増加）。`;
+    }
+    if (slowing) {
+      return `${span}物体は ${dir} に、加速度 a = ${fmt(a)} m/s² で速さを減らしながら運動している` +
+             `（速さ ${fmt(Math.abs(v0))} → ${fmt(Math.abs(v1))} m/s に減少）。`;
+    }
+    // 速さが変わらないが加速度が非ゼロ（理論上は起きにくいが念のため）
+    return `${span}物体は ${dir} に、加速度 a = ${fmt(a)} m/s² で運動している。`;
+  }
+
+  // ----------------------------------------------------------------
+  // 数値ヘルパー
+  // ----------------------------------------------------------------
+
+  /** 時刻 t を含むセグメントを返す（端点は前のセグメント優先） */
+  static _segmentAt(curve, t) {
+    if (!curve || !curve.segments) return null;
+    for (const seg of curve.segments) {
+      if (t >= seg.t0 - 1e-9 && t <= seg.t1 + 1e-9) return seg;
+    }
+    return null;
+  }
+
+  /** カーブの時刻 t における値（区分多項式評価。セグメント境界は含む側で評価） */
+  static _segmentValueAt(curve, t) {
+    const seg = KinematicsProblemGenerator._segmentAt(curve, t);
+    if (!seg) return 0;
+    const dt = t - seg.t0;
+    return seg.c0 + seg.c1 * dt + seg.c2 * dt * dt;
+  }
+
+  /** 数値を見やすい桁数に丸めて文字列化する（誤差を消すため小数第2位で丸める） */
+  static _fmt(v) {
+    const r = Math.round(v * 100) / 100;
+    return String(r);
+  }
+}

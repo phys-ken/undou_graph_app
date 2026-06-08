@@ -489,3 +489,85 @@ canvas {
   color: #2c3a4a;
 }
 .dialog-btn-cancel:hover { background: #d2dae3; }
+
+/* ============================================================
+   設問生成タブ
+   ============================================================ */
+select {
+  padding: 4px 8px;
+  border: 1px solid #c8cdd3;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #fafafa;
+  color: #1a1a1a;
+}
+select:focus {
+  outline: none;
+  border-color: #1e3a5f;
+  background: #fff;
+}
+
+.problem-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #d8dde3;
+}
+.problem-controls .setting-row { margin-bottom: 0; }
+.problem-controls .btn-row { margin-top: 0; }
+
+.problem-output { display: flex; flex-direction: column; gap: 16px; }
+
+.output-section {
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #d8dde3;
+  padding: 16px 18px;
+}
+.output-section h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e3a5f;
+  margin-bottom: 8px;
+}
+.output-section.answer-section { background: #f7faf7; border-color: #cfe0cf; }
+
+.problem-text, .answer-note {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #2c3a4a;
+  white-space: pre-wrap;
+  margin-bottom: 10px;
+}
+.answer-note { color: #3a5a3a; }
+
+.canvas-wrapper {
+  display: inline-block;
+  margin: 6px 12px 6px 0;
+  vertical-align: top;
+}
+.canvas-wrapper canvas { margin-bottom: 4px; }
+
+.dl-btn {
+  display: block;
+  font-size: 11px;
+  padding: 3px 10px;
+  border: 1px solid #c8cdd3;
+  border-radius: 4px;
+  background: #f5f7fa;
+  color: #1e3a5f;
+  cursor: pointer;
+}
+.dl-btn:hover { background: #e8eef5; border-color: #1e3a5f; }
+
+.export-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}

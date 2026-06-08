@@ -108,6 +108,7 @@
     <div class="tabs">
       <button class="tab-btn active" data-tab="editor">グラフ編集</button>
       <button class="tab-btn"        data-tab="derived">自動導出グラフ</button>
+      <button class="tab-btn"        data-tab="problems">設問生成</button>
     </div>
 
     <!-- ====================================================
@@ -152,6 +153,38 @@
 
     </div>
 
+    <!-- ====================================================
+         タブ③: 設問生成
+         ==================================================== -->
+    <div id="tab-problems" class="tab-content">
+
+      <div class="problem-controls">
+        <div class="setting-row">
+          <label>問題種類</label>
+          <select id="problemCategory" onchange="App._syncProblemSubtypeOptions()">
+            <option value="conversion">グラフ変換</option>
+            <option value="numeric">数値・記述</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <label>設問</label>
+          <select id="problemSubtype"></select>
+        </div>
+        <div class="btn-row">
+          <button class="btn-primary" onclick="App.generateProblem()">生成</button>
+        </div>
+      </div>
+
+      <div id="problemOutput" class="problem-output"></div>
+
+      <div id="problemExportControls" class="export-controls" style="display:none">
+        <button class="btn-secondary" onclick="App.downloadProblemPNG()">画像一括DL（PNG）</button>
+        <button class="btn-secondary" onclick="App.downloadProblemPDF()">問題PDF</button>
+        <button class="btn-secondary" onclick="App.downloadAnswerPDF()">解答PDF</button>
+      </div>
+
+    </div>
+
   </main>
 </div>
 
@@ -186,6 +219,7 @@
 <script src="js/renderer.js"></script>
 <script src="js/editor.js"></script>
 <script src="js/exporter.js"></script>
+<script src="js/problems.js"></script>
 <script src="js/app.js"></script>
 
 </body>
