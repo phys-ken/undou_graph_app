@@ -10,11 +10,48 @@ const { readFileSync } = require('fs');
 const { join } = require('path');
 const vm = require('node:vm');
 
+// _renderGraphCanvas 等の Canvas 描画系メソッド（generateGraphConversion /
+// generateGraphChoice / generateNumeric から内部的に呼ばれる）は document.createElement('canvas')
+// と MotionGraphRenderer に依存する。node:test 環境には DOM がないため、
+// api/sandbox-stubs.js と同じ要領で `canvas` パッケージ（node-canvas）を使い
+// 最小限の document スタブを用意し、スモークテスト（例外を投げないことの確認）を可能にする。
+const { createCanvas } = require('canvas');
+global.document = {
+  createElement(tag) {
+    const t = String(tag).toLowerCase();
+    if (t === 'canvas') {
+      const c = createCanvas(1, 1);
+      if (!c.style) c.style = {};
+      return c;
+    }
+    throw new Error(`document.createElement('${tag}') is not supported in test stub`);
+  },
+  addEventListener() {},
+};
+
 const load = (file) => vm.runInThisContext(readFileSync(join(__dirname, '..', 'js', file), 'utf8'));
 load('random.js');
 load('motion.js');
+load('step-motion.js');
 load('kinematics.js');
+load('renderer.js');
 load('problems.js');
+
+function makeStepGraph(tStart, values, x0 = 0) {
+  const g = new StepMotionGraph();
+  g.tStart = tStart;
+  g.values = [...values];
+  g.x0 = x0;
+  return g;
+}
+
+// generator インスタンス生成の共通ヘルパー（_splitIntervalBySegments のテストと同じスタブ設定）
+function makeGenerator() {
+  return new KinematicsProblemGenerator({
+    gridConfig: { xMin: 0, xMax: 10, yMin: -2, yMax: 2 },
+    styleConfig: STYLE_PRESETS_STUB(),
+  });
+}
 
 const EPS = 1e-9;
 function close(a, b, msg) {
@@ -343,3 +380,153 @@ describe('KinematicsProblemGenerator.CIRCLED_DIGITS', () => {
 function STYLE_PRESETS_STUB() {
   return { grid: {}, xt: {}, vt: {}, at: {}, riser: {}, undefinedMark: {}, fill: {} };
 }
+
+// ── _deriveForSource（sourceKind に応じた導出ディスパッチの共通ヘルパー） ─
+describe('KinematicsProblemGenerator._deriveForSource', () => {
+  it("sourceKind='vt' のとき deriveFromVT と同じ結果を返す", () => {
+    const g1 = makeGraph([[0, 0], [4, 2], [8, 2]], 'vt', 0);
+    const g2 = makeGraph([[0, 0], [4, 2], [8, 2]], 'vt', 0);
+    const expected = Kinematics.deriveFromVT(g1);
+    const actual = KinematicsProblemGenerator._deriveForSource(g2, 'vt', 0);
+    assert.deepEqual(actual.vt.segments, expected.vt.segments);
+    assert.deepEqual(actual.xt.segments, expected.xt.segments);
+    assert.deepEqual(actual.at.segments, expected.at.segments);
+  });
+
+  it("sourceKind='xt' のとき deriveFromXT と同じ結果を返す", () => {
+    const g1 = makeGraph([[0, 0], [4, 4], [8, 0]], 'xt', 0);
+    const g2 = makeGraph([[0, 0], [4, 4], [8, 0]], 'xt', 0);
+    const expected = Kinematics.deriveFromXT(g1);
+    const actual = KinematicsProblemGenerator._deriveForSource(g2, 'xt');
+    assert.deepEqual(actual.vt.segments, expected.vt.segments);
+    assert.deepEqual(actual.xt.segments, expected.xt.segments);
+    assert.deepEqual(actual.at.segments, expected.at.segments);
+  });
+
+  it("sourceKind='vt-step' のとき deriveFromVTStep と同じ結果を返す", () => {
+    const g1 = makeStepGraph(0, [1, 1, 3, -1], 0);
+    const g2 = makeStepGraph(0, [1, 1, 3, -1], 0);
+    const expected = Kinematics.deriveFromVTStep(g1);
+    const actual = KinematicsProblemGenerator._deriveForSource(g2, 'vt-step', 0);
+    assert.deepEqual(actual.vt.segments, expected.vt.segments);
+    assert.deepEqual(actual.xt.segments, expected.xt.segments);
+    assert.deepEqual(actual.at.segments, expected.at.segments);
+    assert.deepEqual(actual.at.undefinedInstants, expected.at.undefinedInstants);
+  });
+
+  it("sourceKind='vt-step' では source.kind を上書きしない（StepMotionGraph.kind は固定）", () => {
+    const g = makeStepGraph(0, [1, 2, 2], 0);
+    KinematicsProblemGenerator._deriveForSource(g, 'vt-step', 0);
+    assert.equal(g.kind, 'vt-step');
+  });
+
+  it("sourceKind='vt-step' のとき x0 を渡すと source.x0 に反映される", () => {
+    const g = makeStepGraph(0, [1, 2, 2], 0);
+    const derived = KinematicsProblemGenerator._deriveForSource(g, 'vt-step', 5);
+    assert.equal(g.x0, 5);
+    close(derived.xt.segments[0].c0, 5);
+  });
+
+  it("sourceKind='vt' で source.kind が異なれば揃える", () => {
+    const g = makeGraph([[0, 0], [4, 2]], 'xt', 0);
+    g.kind = 'xt';
+    KinematicsProblemGenerator._deriveForSource(g, 'vt', 0);
+    assert.equal(g.kind, 'vt');
+  });
+});
+
+// ── 階段状 v-t（StepMotionGraph）を sourceKind='vt-step' として扱う設問生成 ─
+describe('KinematicsProblemGenerator with vt-step source', () => {
+  // 0〜1: 1 m/s, 1〜2: 1 m/s（連続）, 2〜3: 3 m/s（不連続ジャンプ）, 3〜4: -1 m/s（不連続ジャンプ）
+  const stepSource = () => makeStepGraph(0, [1, 1, 3, -1], 0);
+
+  it('generateGraphConversion: 例外を投げず、deriveFromVTStep と同じ導出結果に基づく canvas を返す', () => {
+    const gen = makeGenerator();
+    const source = stepSource();
+    const expected = Kinematics.deriveFromVTStep(makeStepGraph(0, [1, 1, 3, -1], 0));
+
+    const result = gen.generateGraphConversion({ source, sourceKind: 'vt-step', askFor: ['xt', 'at'], x0: 0 });
+
+    assert.equal(result.question.canvases.length, 3); // 元グラフ + 空欄2つ
+    assert.equal(result.answer.canvases.length, 2);
+    result.question.canvases.forEach(c => assert.ok(c && typeof c.getContext === 'function'));
+    result.answer.canvases.forEach(c => assert.ok(c && typeof c.getContext === 'function'));
+
+    assert.match(result.question.text, /v-t（速度-時間）/);
+    assert.match(result.answer.text, /撃力的に変化する/); // a-t に未定義瞬間（ジャンプ境界）がある場合の注記
+
+    // a-t に未定義瞬間（ジャンプ境界）が含まれることの確認（直接 Kinematics で検証）
+    assert.ok(expected.at.undefinedInstants.length > 0);
+  });
+
+  it('generateNumeric (acceleration): 区分定数カーブの区間で例外を投げず加速度を計算する', () => {
+    const gen = makeGenerator();
+    const source = stepSource();
+    const result = gen.generateNumeric({ source, sourceKind: 'vt-step', subtype: 'acceleration', params: { interval: { t0: 0, t1: 1 } } });
+
+    assert.match(result.question.text, /v-t/);
+    assert.match(result.answer.text, /a = /);
+    // [0,1] 区間は値が一定（1 m/s）→ 加速度は 0
+    assert.match(result.answer.text, /a = 0 m\/s/);
+    result.question.canvases.forEach(c => assert.ok(c && typeof c.getContext === 'function'));
+  });
+
+  it('generateNumeric (displacement): 区分定数カーブの面積（変位）を計算する', () => {
+    const gen = makeGenerator();
+    const source = stepSource();
+    const result = gen.generateNumeric({ source, sourceKind: 'vt-step', subtype: 'displacement', params: { interval: { t0: 0, t1: 4 } } });
+
+    // 変位 = (1*1) + (1*1) + (3*1) + (-1*1) = 4
+    assert.match(result.answer.text, /変位 = 4 m/);
+    assert.equal(result.answer.canvases.length, 1);
+    assert.ok(result.answer.canvases[0] && typeof result.answer.canvases[0].getContext === 'function');
+  });
+
+  it('generateNumeric (direction): 速度が負になる区間（階段の最後の段）を検出する', () => {
+    const gen = makeGenerator();
+    const source = stepSource();
+    const result = gen.generateNumeric({ source, sourceKind: 'vt-step', subtype: 'direction' });
+
+    assert.match(result.answer.text, /t = 3 〜 4/);
+  });
+
+  it('generateNumeric (describe): 区間の運動の様子を説明するテキストを生成する', () => {
+    const gen = makeGenerator();
+    const source = stepSource();
+    const result = gen.generateNumeric({ source, sourceKind: 'vt-step', subtype: 'describe', params: { interval: { t0: 0, t1: 1 } } });
+
+    assert.match(result.answer.text, /等速直線運動|静止/);
+  });
+
+  it('generateGraphChoice: 例外を投げず choices/correctIndex/seed を返す', () => {
+    const gen = makeGenerator();
+    const source = stepSource();
+    const distractors = [
+      { points: [[0, 0], [4, 1], [8, 1]], kind: 'xt', x0: 0, label: 'B' },
+    ];
+    const result = gen.generateGraphChoice({
+      source, sourceKind: 'vt-step', askFor: 'xt', distractors, x0: 0,
+    });
+
+    assert.equal(result.choices.length, 2);
+    assert.ok(result.correctIndex === 0 || result.correctIndex === 1);
+    assert.ok(Number.isFinite(result.seed));
+    assert.match(result.question.text, /v-t（速度-時間）/);
+    result.question.canvases.forEach(c => assert.ok(c && typeof c.getContext === 'function'));
+    result.choices.forEach(ch => assert.ok(ch.canvas && typeof ch.canvas.getContext === 'function'));
+  });
+
+  it('_renderGraphCanvas: 階段状グラフ（StepMotionGraph）を例外なく描画する', () => {
+    const gen = makeGenerator();
+    const source = stepSource();
+    const canvas = gen._renderGraphCanvas({ graph: source, kind: 'vt-step' });
+    assert.ok(canvas && typeof canvas.getContext === 'function');
+  });
+
+  it('_renderGraphCanvas: 空の StepMotionGraph でも例外を投げない', () => {
+    const gen = makeGenerator();
+    const empty = new StepMotionGraph();
+    const canvas = gen._renderGraphCanvas({ graph: empty, kind: 'vt-step' });
+    assert.ok(canvas && typeof canvas.getContext === 'function');
+  });
+});

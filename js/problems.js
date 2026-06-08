@@ -83,10 +83,35 @@ class KinematicsProblemGenerator {
     return { color: '#c9551a', lineWidth: 2.5 };
   }
 
+  /**
+   * sourceKind に応じて Kinematics.deriveFromVT / deriveFromXT / deriveFromVTStep を呼び分ける。
+   * 各呼び出し元が個別に持っていた3分岐ディスパッチを共通化したもの
+   * （'vt'|'xt' は従来どおり `source.kind` を sourceKind に揃えてから呼ぶが、
+   * StepMotionGraph は kind が常に 'vt-step' 固定でそもそも不一致が起こらないため、
+   * `source.kind = sourceKind` の代入は 'vt'|'xt' の場合のみ行う）。
+   *
+   * @param {MotionGraph|StepMotionGraph} source
+   * @param {'vt'|'xt'|'vt-step'} sourceKind
+   * @param {number} [x0]  v-t系（'vt'|'vt-step'）の積分基準点
+   * @returns {{vt:Curve, xt:Curve, at:Curve}}
+   */
+  static _deriveForSource(source, sourceKind, x0) {
+    if (sourceKind === 'vt-step') {
+      if (x0 !== undefined) source.x0 = x0;
+      return Kinematics.deriveFromVTStep(source);
+    }
+    if (sourceKind !== source.kind) source.kind = sourceKind;
+    if (sourceKind === 'vt') {
+      source.x0 = x0 ?? source.x0 ?? 0;
+      return Kinematics.deriveFromVT(source);
+    }
+    return Kinematics.deriveFromXT(source);
+  }
+
   /** 軸ラベル（日本語の物理記法）を運動グラフの種類から決める */
   static _yLabel(kind) {
     if (kind === 'xt') return '位置 x [m]';
-    if (kind === 'vt') return '速度 v [m/s]';
+    if (kind === 'vt' || kind === 'vt-step') return '速度 v [m/s]';
     return '加速度 a [m/s²]';
   }
 
@@ -148,7 +173,8 @@ class KinematicsProblemGenerator {
    * グラフ（手描き graph または導出 curve）を描いた Canvas を返す共通ヘルパー
    * @param {Object} opts
    *   opts.curve  {Curve}        描画する導出済みカーブ（あれば優先）
-   *   opts.graph  {MotionGraph}  手描きグラフ（curve 未指定時、ポリラインとして描く）
+   *   opts.graph  {MotionGraph|StepMotionGraph} 手描きグラフ（curve 未指定時、ポリライン
+   *                                  または階段状カーブ＋リサーとして描く）
    *   opts.kind   {'xt'|'vt'|'at'} 軸ラベル決定用
    *   opts.label  {string}       右上に表示する補助ラベル（凡例代わりの説明文）
    */
@@ -163,6 +189,21 @@ class KinematicsProblemGenerator {
 
     if (curve) {
       this._drawCurveWithMarkers(r, curve, c.xMin, c.xMax);
+    } else if (graph && graph.kind === 'vt-step' && !graph.isEmpty()) {
+      // 階段状 v-t グラフ（StepMotionGraph）— StepGraphEditor.render() と
+      // 同じロジックで「区分定数カーブ＋段差リサー」を描く（getSnapshot/points を持たないため）
+      const stepCurve = Kinematics.curveFromStepGraph(graph);
+      const style = KinematicsProblemGenerator._handDrawnStyle();
+      r.drawCurve(stepCurve, style, c.xMin, c.xMax);
+      stepCurve.discontinuities.forEach(t => {
+        const valueBefore = graph.values[t - graph.tStart - 1];
+        const valueAfter  = graph.values[t - graph.tStart];
+        r.drawDiscontinuity(t, valueBefore, valueAfter, {
+          color: style.color,
+          dashed: false,
+          lineWidth: style.lineWidth,
+        });
+      });
     } else if (graph && !graph.isEmpty()) {
       r.drawPolyline(graph.getSnapshot(c.xMin, c.xMax), KinematicsProblemGenerator._handDrawnStyle());
     }
@@ -187,21 +228,18 @@ class KinematicsProblemGenerator {
    * 手描きグラフから別の運動グラフ（複数可）を導出させる設問を生成する
    *
    * @param {Object} params
-   *   params.source     {MotionGraph} 手描きグラフ
-   *   params.sourceKind {'vt'|'xt'}   手描きグラフの種類（= source.kind と一致させること）
+   *   params.source     {MotionGraph|StepMotionGraph} 手描きグラフ
+   *   params.sourceKind {'vt'|'xt'|'vt-step'} 手描きグラフの種類（= source.kind と一致させること）
    *   params.askFor     {Array<'xt'|'vt'|'at'>} 学生に描かせる対象（複数可）
-   *   params.x0         {number} v-t 始点の場合の積分基準点（x-t 導出に必要）
+   *   params.x0         {number} v-t系（'vt'|'vt-step'）始点の場合の積分基準点（x-t 導出に必要）
    * @returns {{ question: {text, canvases}, answer: {text, canvases} }}
    */
   generateGraphConversion({ source, sourceKind, askFor, x0 }) {
-    if (sourceKind !== source.kind) source.kind = sourceKind;
-    if (sourceKind === 'vt') source.x0 = x0 ?? source.x0 ?? 0;
+    const derived = KinematicsProblemGenerator._deriveForSource(source, sourceKind, x0);
 
-    const derived = (sourceKind === 'vt')
-      ? Kinematics.deriveFromVT(source)
-      : Kinematics.deriveFromXT(source);
-
-    const sourceLabel = sourceKind === 'vt' ? 'v-t（速度-時間）' : 'x-t（位置-時間）';
+    const sourceLabel = (sourceKind === 'vt' || sourceKind === 'vt-step')
+      ? 'v-t（速度-時間）'
+      : 'x-t（位置-時間）';
     const targetLabels = askFor.map(k => KinematicsProblemGenerator._kindLabel(k));
 
     const questionText =
@@ -257,11 +295,11 @@ class KinematicsProblemGenerator {
    * （導出エンジンを通さない——もっともらしい誤答に見せることが目的のため）。
    *
    * @param {Object} params
-   *   params.source      {MotionGraph} 問題文に示す手描きグラフ（与えられたグラフ）
-   *   params.sourceKind  {'vt'|'xt'}   source の種類
+   *   params.source      {MotionGraph|StepMotionGraph} 問題文に示す手描きグラフ（与えられたグラフ）
+   *   params.sourceKind  {'vt'|'xt'|'vt-step'} source の種類
    *   params.askFor      {'xt'|'vt'|'at'} 選択肢として問う対象（単一）
    *   params.distractors {Array<Object>} MotionGraph.toJSON() 形状の誤答グラフ JSON 配列
-   *   params.x0          {number} v-t 始点の場合の積分基準点（x-t 導出に必要）
+   *   params.x0          {number} v-t系（'vt'|'vt-step'）始点の場合の積分基準点（x-t 導出に必要）
    *   params.shuffle     {boolean} 選択肢をシャッフルするか（既定 true）
    * @returns {{
    *   question: {text, canvases},
@@ -272,19 +310,16 @@ class KinematicsProblemGenerator {
    * }}
    */
   generateGraphChoice({ source, sourceKind, askFor, distractors = [], x0, shuffle = true }) {
-    if (sourceKind !== source.kind) source.kind = sourceKind;
-    if (sourceKind === 'vt') source.x0 = x0 ?? source.x0 ?? 0;
-
-    const derived = (sourceKind === 'vt')
-      ? Kinematics.deriveFromVT(source)
-      : Kinematics.deriveFromXT(source);
+    const derived = KinematicsProblemGenerator._deriveForSource(source, sourceKind, x0);
     const correctCurve = derived[askFor];
 
     // 誤答グラフを MotionGraph として復元（描画は手描き風ポリライン——
     // Kinematics.derive* を通さないことで「もっともらしい誤答」の見た目を保つ）
     const distractorGraphs = distractors.map(json => new MotionGraph().fromJSON(json));
 
-    const sourceLabel = sourceKind === 'vt' ? 'v-t（速度-時間）' : 'x-t（位置-時間）';
+    const sourceLabel = (sourceKind === 'vt' || sourceKind === 'vt-step')
+      ? 'v-t（速度-時間）'
+      : 'x-t（位置-時間）';
     const targetLabel = KinematicsProblemGenerator._kindLabel(askFor);
 
     // シャッフル前の並び（順序固定: ① 正答 ② 誤答1 ③ 誤答2 …）と
@@ -382,18 +417,15 @@ class KinematicsProblemGenerator {
    * 数値・記述問題を生成する
    *
    * @param {Object} params
-   *   params.source     {MotionGraph}
-   *   params.sourceKind {'vt'|'xt'}
+   *   params.source     {MotionGraph|StepMotionGraph}
+   *   params.sourceKind {'vt'|'xt'|'vt-step'}
    *   params.subtype    {'acceleration'|'displacement'|'direction'|'describe'}
    *   params.params     {Object} サブタイプ別の追加パラメータ（interval 等）。
    *                       省略時は SeededRandom で決定論的にランダム選択する。
    * @returns {{ question: {text, canvases}, answer: {text, canvases} }}
    */
   generateNumeric({ source, sourceKind, subtype, params = {} }) {
-    if (sourceKind !== source.kind) source.kind = sourceKind;
-    const derived = (sourceKind === 'vt')
-      ? Kinematics.deriveFromVT(source)
-      : Kinematics.deriveFromXT(source);
+    const derived = KinematicsProblemGenerator._deriveForSource(source, sourceKind);
 
     switch (subtype) {
       case 'acceleration': return this._generateAcceleration(source, derived, params);
@@ -448,7 +480,7 @@ class KinematicsProblemGenerator {
     const a = KinematicsProblemGenerator._segmentValueAt(derived.at, (t0 + t1) / 2);
 
     const questionText =
-      `下図は、ある物体の${source.kind === 'vt' ? 'v-t' : 'x-t'} グラフである。\n` +
+      `下図は、ある物体の${(source.kind === 'vt' || source.kind === 'vt-step') ? 'v-t' : 'x-t'} グラフである。\n` +
       `t = ${KinematicsProblemGenerator._fmt(t0)} 〜 ${KinematicsProblemGenerator._fmt(t1)} s の間の加速度を求めよ。`;
     const questionCanvases = [this._renderGraphCanvas({ graph: source, kind: source.kind })];
 
@@ -494,7 +526,7 @@ class KinematicsProblemGenerator {
     const total = parts.reduce((s, p) => s + p.area, 0);
 
     const questionText =
-      `下図は、ある物体の${source.kind === 'vt' ? 'v-t' : 'x-t'} グラフである。\n` +
+      `下図は、ある物体の${(source.kind === 'vt' || source.kind === 'vt-step') ? 'v-t' : 'x-t'} グラフである。\n` +
       `t = ${KinematicsProblemGenerator._fmt(interval.t0)} 〜 ${KinematicsProblemGenerator._fmt(interval.t1)} s の間の変位を求めよ。`;
     const questionCanvases = [this._renderGraphCanvas({ graph: source, kind: source.kind })];
 
@@ -603,7 +635,7 @@ class KinematicsProblemGenerator {
     const negativeIntervals = KinematicsProblemGenerator.findNegativeIntervals(vt);
 
     const questionText =
-      `下図は、ある物体の${source.kind === 'vt' ? 'v-t' : 'x-t'} グラフである。\n` +
+      `下図は、ある物体の${(source.kind === 'vt' || source.kind === 'vt-step') ? 'v-t' : 'x-t'} グラフである。\n` +
       `この物体が逆向きに運動している（速度が負である）区間はどこか、答えよ。`;
     const questionCanvases = [this._renderGraphCanvas({ graph: source, kind: source.kind })];
 
@@ -672,7 +704,7 @@ class KinematicsProblemGenerator {
     const { t0, t1 } = interval;
 
     const questionText =
-      `下図は、ある物体の${source.kind === 'vt' ? 'v-t' : 'x-t'} グラフである。\n` +
+      `下図は、ある物体の${(source.kind === 'vt' || source.kind === 'vt-step') ? 'v-t' : 'x-t'} グラフである。\n` +
       `t = ${KinematicsProblemGenerator._fmt(t0)} 〜 ${KinematicsProblemGenerator._fmt(t1)} s の間の運動の様子を説明せよ。`;
     const questionCanvases = [this._renderGraphCanvas({ graph: source, kind: source.kind })];
 
