@@ -1,0 +1,98 @@
+{
+  "version": "1.0",
+  "title": "Kinematics Graph Problem Generator API",
+  "description": "Generate physics motion-graph (x-t / v-t / a-t) problem images programmatically. POST a problem spec to /api/generate; receive PNG/DOCX/TXT/ZIP file paths (or inline dataURLs).",
+  "endpoints": {
+    "POST /api/generate": "Generate a problem (images + docx + txt + bundle zip) for one problem spec",
+    "GET /api/health": "Service liveness check",
+    "GET /api/schema": "This document",
+    "GET /api/output/:session/:file": "Serve a generated file by session+filename"
+  },
+  "graph": {
+    "description": "MotionGraph spec — matches MotionGraph.toJSON()/fromJSON() (js/motion.js).",
+    "points": "Array of {t:int, value:multiple-of-0.5}, at least 2. Order doesn't matter (sorted internally).",
+    "kind": "'vt' (velocity-time, primary input) | 'xt' (position-time, line segments only — no parabolic arcs by hand)",
+    "x0": "Number (default 0). Initial position used as the integration constant when kind='vt' (x-t is derived by integrating v-t from x0).",
+    "label": "Optional label string (e.g. 'A')."
+  },
+  "grid": {
+    "default": { "xMin": 0, "xMax": 10, "yMin": -2, "yMax": 2,
+                  "paddingLeft": 52, "paddingRight": 52, "paddingTop": 32, "paddingBottom": 44 },
+    "autoYRange": "If yMin/yMax are not specified, the y-range is auto-adjusted to fit the source graph and all derived curves (xt/vt/at), symmetric about 0."
+  },
+  "cellSize": {
+    "description": "Optional fixed cell pixel size. null = auto (580x200 logical px). Range: 15..120."
+  },
+  "style": "'bw' (default, black-and-white print friendly) | 'color' (browser/color print, blue=x-t green=v-t red=a-t) | custom STYLE_PRESETS-shaped object",
+  "types": {
+    "graphConversion": {
+      "name": "Graph conversion — derive other motion graphs from a hand-drawn one",
+      "description": "Given a hand-drawn v-t or x-t graph, ask the student to draw the corresponding graph(s) of other kinds (e.g. 'given v-t, draw x-t and a-t').",
+      "requiredFields": ["source", "askFor"],
+      "askFor": "'xt' | 'vt' | 'at', or an array of these (multiple targets in one problem). Must not include sourceKind.",
+      "optionalFields": ["sourceKind (defaults to source.kind)", "x0 (only meaningful when source.kind/sourceKind === 'vt')"],
+      "supportsChoices": false,
+      "output": "question.canvases = [source graph, blank answer grid per askFor item]; answer.canvases = [derived curve per askFor item]"
+    },
+    "numeric": {
+      "name": "Numeric / descriptive (free-response only — never multiple choice)",
+      "description": "Generates a free-response numeric or descriptive question derived from the given graph. Per CLAUDE.md design rules, these are never turned into multiple-choice problems.",
+      "requiredFields": ["source", "subtype"],
+      "subtypes": {
+        "acceleration": "Compute the acceleration over a (possibly auto-picked) interval.",
+        "displacement": "Compute the displacement (= signed area under v-t) over an interval. Defaults to the whole hand-drawn range if params.interval is omitted.",
+        "direction": "Identify the interval(s) where velocity is negative (motion in the opposite direction).",
+        "describe": "Produce a model-answer description of the motion over a (possibly auto-picked) interval."
+      },
+      "optionalFields": ["sourceKind", "x0", "params.interval={t0,t1} — explicit interval; otherwise picked deterministically via a seed derived from the graph"],
+      "supportsChoices": false
+    },
+    "graphChoice": {
+      "name": "Graph multiple-choice (API-only — not exposed in the browser UI)",
+      "description": "Per CONTEXT.md, this type exists only in the API: students should hand-draw graphs in the UI, so multiple-choice graph problems are intentionally absent from the browser UI. 'Which graph correctly corresponds to the shown v-t/x-t graph?' — student picks one of N graphs.",
+      "requiredFields": ["source", "askFor (single kind, not an array)", "choices.enabled=true"],
+      "distractors": "IMPORTANT: this tool does not generate distractor graphs itself — the caller (an AI agent) must supply each distractor as a full MotionGraph spec (same shape as 'source'). The tool only ensures consistency, layout and output of the supplied graphs.",
+      "supportsChoices": true,
+      "choiceOrdering": "KinematicsProblemGenerator.generateGraphChoice ALREADY shuffles internally and returns the final display order with correctIndex + seed — the API does not re-shuffle."
+    }
+  },
+  "choices": {
+    "enabled": "boolean — required (true) for type='graphChoice', forbidden for other types",
+    "count": "2..10 (total options including the correct one)",
+    "distractors": "Array of full MotionGraph specs (same shape as 'source'), length must equal count - 1",
+    "shuffle": "default true. Seeded deterministically by hash of (source + sourceKind + askFor + distractors + x0) — same input always produces the same shuffle.",
+    "response": "files.choices is an array in DISPLAY order (already final — the generator shuffles internally). Each entry has {path|dataUrl, isCorrect, label}. response.correctIndex is the 0-based index of the correct choice in display order."
+  },
+  "output": {
+    "default": "Files written to ./api_output/{sessionId}/. Response includes absolute paths.",
+    "outputDir": "Override the directory (must be an absolute path).",
+    "filenamePrefix": "Default 'q001'. Files named '{prefix}_question_1.png', etc.",
+    "inline": "If true, response contains base64 dataUrls instead of file paths. No files are written.",
+    "manifest.json": "Saved alongside files; contains the full request + response (for reproducibility)."
+  },
+  "examples": {
+    "graphConversion": {
+      "type": "graphConversion",
+      "source": { "kind": "vt", "x0": 0, "points": [{ "t": 0, "value": 0 }, { "t": 4, "value": 2 }, { "t": 8, "value": 2 }, { "t": 10, "value": 0 }] },
+      "askFor": ["xt", "at"]
+    },
+    "numeric": {
+      "type": "numeric",
+      "source": { "kind": "vt", "x0": 0, "points": [{ "t": 0, "value": 0 }, { "t": 4, "value": 2 }, { "t": 8, "value": 2 }, { "t": 10, "value": 0 }] },
+      "subtype": "displacement"
+    },
+    "graphChoice": {
+      "type": "graphChoice",
+      "source": { "kind": "vt", "x0": 0, "points": [{ "t": 0, "value": 0 }, { "t": 4, "value": 2 }, { "t": 8, "value": 2 }, { "t": 10, "value": 0 }] },
+      "askFor": "xt",
+      "choices": {
+        "enabled": true,
+        "count": 3,
+        "distractors": [
+          { "kind": "xt", "points": [{ "t": 0, "value": 0 }, { "t": 4, "value": 4 }, { "t": 8, "value": 12 }, { "t": 10, "value": 12 }] },
+          { "kind": "xt", "points": [{ "t": 0, "value": 0 }, { "t": 4, "value": 8 }, { "t": 8, "value": 8 }, { "t": 10, "value": 0 }] }
+        ]
+      }
+    }
+  }
+}

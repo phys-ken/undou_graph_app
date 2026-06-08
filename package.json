@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node api_server.js",
-    "test": "node --test tests/motion.test.js tests/kinematics.test.js tests/renderer.test.js tests/random.test.js",
+    "test": "node --test tests/motion.test.js tests/kinematics.test.js tests/renderer.test.js tests/problems.test.js",
+    "test:api": "node --test tests/api.test.js",
     "smoke": "node api/smoke.js"
   },
   "dependencies": {
