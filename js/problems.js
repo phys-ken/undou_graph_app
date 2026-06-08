@@ -1,4 +1,4 @@
-/**
+﻿/**
  * KinematicsProblemGenerator - 運動グラフ設問テンプレート生成
  *
  * legacy_nami_app の ProblemGenerator（波の重ね合わせ用）の構造をフォークし、
@@ -80,7 +80,7 @@ class KinematicsProblemGenerator {
    * 固定の実線スタイルを使う。
    */
   static _handDrawnStyle() {
-    return { color: '#1e3a5f', lineWidth: 2.5 };
+    return { color: '#c9551a', lineWidth: 2.5 };
   }
 
   /** 軸ラベル（日本語の物理記法）を運動グラフの種類から決める */

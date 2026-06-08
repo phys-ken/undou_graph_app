@@ -1,4 +1,4 @@
-/* ============================================================
+﻿/* ============================================================
    リセット・基底
    ============================================================ */
 *, *::before, *::after {
@@ -23,7 +23,7 @@ body {
    ヘッダー
    ============================================================ */
 header {
-  background: #1e3a5f;
+  background: #c9551a;
   color: #fff;
   padding: 0 20px;
   height: 48px;
@@ -131,7 +131,7 @@ input[type="number"] {
 }
 input[type="number"]:focus {
   outline: none;
-  border-color: #1e3a5f;
+  border-color: #c9551a;
   background: #fff;
 }
 
@@ -155,11 +155,11 @@ input[type="number"]:focus {
   flex: 1;
   white-space: nowrap;
 }
-.dir-btn:hover { background: #e8eef5; border-color: #1e3a5f; }
+.dir-btn:hover { background: #fbe9dc; border-color: #c9551a; }
 .dir-btn.active {
-  background: #1e3a5f;
+  background: #c9551a;
   color: #fff;
-  border-color: #1e3a5f;
+  border-color: #c9551a;
 }
 
 /* 汎用ボタン */
@@ -172,21 +172,21 @@ button {
 }
 
 .btn-primary {
-  background: #1e3a5f;
+  background: #c9551a;
   color: #fff;
-  border: 1px solid #1e3a5f;
+  border: 1px solid #c9551a;
   padding: 6px 14px;
 }
-.btn-primary:hover { background: #2a4f7c; }
+.btn-primary:hover { background: #d97a3f; }
 .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .btn-secondary {
   background: #fff;
-  color: #1e3a5f;
-  border: 1px solid #1e3a5f;
+  color: #c9551a;
+  border: 1px solid #c9551a;
   padding: 6px 12px;
 }
-.btn-secondary:hover { background: #e8eef5; }
+.btn-secondary:hover { background: #fbe9dc; }
 
 .btn-danger {
   background: #fff;
@@ -237,10 +237,10 @@ button {
   margin-bottom: -2px;
   transition: color 0.15s, border-color 0.15s;
 }
-.tab-btn:hover { color: #1e3a5f; }
+.tab-btn:hover { color: #c9551a; }
 .tab-btn.active {
-  color: #1e3a5f;
-  border-bottom-color: #1e3a5f;
+  color: #c9551a;
+  border-bottom-color: #c9551a;
   font-weight: 700;
 }
 
@@ -276,7 +276,7 @@ button {
 .editor-section-header h3 {
   font-size: 14px;
   font-weight: 700;
-  color: #1e3a5f;
+  color: #c9551a;
 }
 
 .editor-hint {
@@ -326,7 +326,7 @@ canvas {
 .derived-item h3 {
   font-size: 13px;
   font-weight: 700;
-  color: #1e3a5f;
+  color: #c9551a;
   margin-bottom: 8px;
 }
 
@@ -373,7 +373,7 @@ canvas {
 .cell-size-details[open] > summary::before {
   content: '▾ ';
 }
-.cell-size-details > summary:hover { color: #1e3a5f; }
+.cell-size-details > summary:hover { color: #c9551a; }
 .cell-size-hint {
   font-size: 10px;
   color: #8a9aaa;
@@ -405,11 +405,11 @@ canvas {
   white-space: nowrap;
   transition: all 0.15s;
 }
-.style-preset-btn:hover { background: #e8eef5; border-color: #1e3a5f; color: #1e3a5f; }
+.style-preset-btn:hover { background: #fbe9dc; border-color: #c9551a; color: #c9551a; }
 .style-preset-btn.active {
-  background: #1e3a5f;
+  background: #c9551a;
   color: #fff;
-  border-color: #1e3a5f;
+  border-color: #c9551a;
 }
 
 /* ============================================================
@@ -480,10 +480,10 @@ canvas {
   cursor: pointer;
 }
 .dialog-btn-ok {
-  background: #1e3a5f;
+  background: #c9551a;
   color: #ffffff;
 }
-.dialog-btn-ok:hover { background: #16314a; }
+.dialog-btn-ok:hover { background: #8a3a0d; }
 .dialog-btn-cancel {
   background: #e3e8ee;
   color: #2c3a4a;
@@ -503,7 +503,7 @@ select {
 }
 select:focus {
   outline: none;
-  border-color: #1e3a5f;
+  border-color: #c9551a;
   background: #fff;
 }
 
@@ -532,7 +532,7 @@ select:focus {
 .output-section h3 {
   font-size: 14px;
   font-weight: 700;
-  color: #1e3a5f;
+  color: #c9551a;
   margin-bottom: 8px;
 }
 .output-section.answer-section { background: #f7faf7; border-color: #cfe0cf; }
@@ -560,10 +560,10 @@ select:focus {
   border: 1px solid #c8cdd3;
   border-radius: 4px;
   background: #f5f7fa;
-  color: #1e3a5f;
+  color: #c9551a;
   cursor: pointer;
 }
-.dl-btn:hover { background: #e8eef5; border-color: #1e3a5f; }
+.dl-btn:hover { background: #fbe9dc; border-color: #c9551a; }
 
 .export-controls {
   display: flex;

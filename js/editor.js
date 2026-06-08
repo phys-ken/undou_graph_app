@@ -1,4 +1,4 @@
-/**
+﻿/**
  * MotionGraphEditor - 格子点クリックによる運動グラフ（v-t / x-t）入力
  *
  * legacy_nami_app の WaveEditor（x/y フィールド）をフォークし、
@@ -170,7 +170,7 @@ class MotionGraphEditor {
    * （legacy WaveEditor.render() の drawWave 呼び出しと同じ方針）。
    */
   _curveStyle() {
-    return { color: '#1e3a5f', lineWidth: 2.5 };
+    return { color: '#c9551a', lineWidth: 2.5 };
   }
 
   render() {
@@ -213,7 +213,7 @@ class MotionGraphEditor {
     const { px, py } = r.toPixel(t, value);
     ctx.save();
     ctx.font = '11px monospace';
-    ctx.fillStyle = '#1e3a5f';
+    ctx.fillStyle = '#c9551a';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
     const label = `(${t}, ${value})`;
@@ -222,7 +222,7 @@ class MotionGraphEditor {
     const lx = (px + tw + 12 > r.canvas.width) ? px - tw - 8 : px + 8;
     ctx.fillStyle = 'rgba(255,255,255,0.8)';
     ctx.fillRect(lx - 2, py - 16, tw + 4, 14);
-    ctx.fillStyle = '#1e3a5f';
+    ctx.fillStyle = '#c9551a';
     ctx.fillText(label, lx, py - 4);
     ctx.restore();
   }
