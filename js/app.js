@@ -759,6 +759,94 @@ const App = {
     ];
     await Exporter.generatePDF('運動グラフ 解答', sections, 'mondai_answer.pdf');
   },
+
+  /**
+   * 問題のみ／問題＋解答の DOCX・PDF・ZIP 共通の section 配列を組み立てる。
+   * @param {boolean} includeAnswer 解答セクションを含めるか
+   * @returns {Array<{label, text, canvases}>}
+   */
+  _buildProblemSections(includeAnswer) {
+    const r = this.currentProblem;
+    const sections = [
+      { label: '【問題】', text: r.question.text, canvases: r.question.canvases },
+    ];
+    if (includeAnswer) {
+      sections.push({ label: '【解答】', text: r.answer.text, canvases: r.answer.canvases });
+    }
+    return sections;
+  },
+
+  /** 問題のみの DOCX をダウンロードする */
+  async downloadProblemDOCX() {
+    if (!this.currentProblem) return;
+    if (!window.docx) {
+      await this._alert('docx（Word文書生成）ライブラリが読み込まれていないため、DOCXを生成できません。');
+      return;
+    }
+    const sections = this._buildProblemSections(false);
+    await Exporter.generateDOCX(sections, 'mondai_question.docx');
+  },
+
+  /** 問題＋解答の DOCX をダウンロードする */
+  async downloadAnswerDOCX() {
+    if (!this.currentProblem) return;
+    if (!window.docx) {
+      await this._alert('docx（Word文書生成）ライブラリが読み込まれていないため、DOCXを生成できません。');
+      return;
+    }
+    const sections = this._buildProblemSections(true);
+    await Exporter.generateDOCX(sections, 'mondai_answer.docx');
+  },
+
+  /** 問題・解答の PNG/PDF/DOCX をすべて 1 つの ZIP にまとめてダウンロードする */
+  async downloadProblemZIP() {
+    if (!this.currentProblem) return;
+    const r = this.currentProblem;
+
+    // 未ロードのライブラリをまとめて通知
+    const missing = [];
+    if (!window.jspdf) missing.push('jsPDF（PDF生成）');
+    if (!window.docx)  missing.push('docx（Word文書生成）');
+    if (!window.JSZip) missing.push('JSZip（ZIP生成）');
+    if (missing.length) {
+      if (!window.JSZip) {
+        await this._alert('JSZip（ZIP生成）ライブラリが読み込まれていないため、ZIPを生成できません。');
+        return;
+      }
+      const ok = await this._confirm(
+        `以下のライブラリが読み込まれていないため、ZIPに一部のファイルが含まれません:\n${missing.join('\n')}\n\n続行しますか？`
+      );
+      if (!ok) return;
+    }
+
+    // ── 画像収集 ─────────────────────────────────────────────────────
+    const images = {};
+    r.question.canvases.forEach((c, i) => { images[`mondai_q_${i + 1}.png`] = c; });
+    r.answer.canvases.forEach((c, i)   => { images[`mondai_a_${i + 1}.png`] = c; });
+
+    const extraFiles = {};
+
+    // ── PDF 生成（Blob として返す） ───────────────────────────────
+    const problemSections = this._buildProblemSections(false);
+    const answerSections  = this._buildProblemSections(true);
+
+    const [problemPdfBlob, answerPdfBlob] = await Promise.all([
+      Exporter.generatePDF('運動グラフ 問題', problemSections, null, { returnBlob: true, silent: true }),
+      Exporter.generatePDF('運動グラフ 解答', answerSections,  null, { returnBlob: true, silent: true }),
+    ]);
+    if (problemPdfBlob) extraFiles['mondai_question.pdf'] = problemPdfBlob;
+    if (answerPdfBlob)  extraFiles['mondai_answer.pdf']   = answerPdfBlob;
+
+    // ── DOCX 生成（Blob として返す） ─────────────────────────────
+    const [problemDocxBlob, answerDocxBlob] = await Promise.all([
+      Exporter.generateDOCX(problemSections, null, { silent: true }),
+      Exporter.generateDOCX(answerSections,  null, { silent: true }),
+    ]);
+    if (problemDocxBlob) extraFiles['mondai_question.docx'] = problemDocxBlob;
+    if (answerDocxBlob)  extraFiles['mondai_answer.docx']   = answerDocxBlob;
+
+    await Exporter.generateZIP(images, 'mondai_all.zip', extraFiles);
+  },
 };
 
 // ------------------------------------------------------------------
