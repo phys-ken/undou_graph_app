@@ -332,6 +332,11 @@ canvas {
 
 .derived-item canvas {
   cursor: default;
+  display: block;
+}
+
+.derived-item .dl-btn {
+  margin-top: 8px;
 }
 
 /* ============================================================
@@ -339,11 +344,18 @@ canvas {
    ============================================================ */
 .graph-mode-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
 .graph-mode-row .dir-btn {
   font-size: 12px;
-  padding: 7px 6px;
+  padding: 7px 4px;
+  flex: 1 1 calc(50% - 2px);
+}
+/* ラベルが長い「x-t を描く」は2つ並べると折り返すため単独で全幅にする
+   （3ボタンを1行に収めようとすると "v-t（階段状）" がパネル幅をはみ出す） */
+.graph-mode-row .dir-btn:last-child {
+  flex-basis: 100%;
 }
 
 /* ============================================================

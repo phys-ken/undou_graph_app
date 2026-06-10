@@ -116,6 +116,121 @@ class KinematicsProblemGenerator {
   }
 
   /**
+   * カーブの値域から、見やすい余白付きの y 軸範囲を求める
+   * （App._autoValueRange と同じロジック — 自動導出グラフタブと模範解答とで
+   * 「種類ごとに自分の値域に合わせて軸を独立に決める」という見せ方を揃えるため）。
+   *
+   * @param {Curve} curve
+   * @param {number} tMin
+   * @param {number} tMax
+   * @returns {{yMin:number, yMax:number}}
+   */
+  static _autoValueRange(curve, tMin, tMax) {
+    const { lo, hi } = KinematicsProblemGenerator._curveExtent(curve, tMin, tMax);
+    return KinematicsProblemGenerator._marginFromExtent(lo, hi);
+  }
+
+  /** カーブのセグメントを密にサンプリングして [tMin, tMax] 内の値域 {lo, hi} を求める */
+  static _curveExtent(curve, tMin, tMax) {
+    const SAMPLES_PER_UNIT = 10;
+    let lo = Infinity, hi = -Infinity;
+
+    if (curve && curve.segments) {
+      curve.segments.forEach(seg => {
+        const segT0 = Math.max(seg.t0, tMin);
+        const segT1 = Math.min(seg.t1, tMax);
+        if (segT1 <= segT0) return;
+        const span = segT1 - segT0;
+        const n = Math.max(1, Math.ceil(span * SAMPLES_PER_UNIT));
+        for (let i = 0; i <= n; i++) {
+          const t = segT0 + (span * i) / n;
+          const dt = t - seg.t0;
+          const v = seg.c0 + seg.c1 * dt + seg.c2 * dt * dt;
+          if (v < lo) lo = v;
+          if (v > hi) hi = v;
+        }
+      });
+    }
+    return { lo, hi };
+  }
+
+  /** 手描き風グラフ（MotionGraph、区分線形）の頂点列から [tMin, tMax] 内の値域 {lo, hi} を求める */
+  static _graphExtent(graph, tMin, tMax) {
+    let lo = Infinity, hi = -Infinity;
+    if (graph && !graph.isEmpty() && typeof graph.getSnapshot === 'function') {
+      graph.getSnapshot(tMin, tMax).forEach(p => {
+        if (p.value < lo) lo = p.value;
+        if (p.value > hi) hi = p.value;
+      });
+    }
+    return { lo, hi };
+  }
+
+  /**
+   * {lo, hi} の値域に余白・原点を加味した {yMin, yMax} を組み立てる（_autoValueRange の後段）。
+   *
+   * 余白を加えただけの境界は目盛り間隔の倍数からずれるため、drawGrid が
+   * 上下端ぴったりに補助線を引けず「上端（または下端）の補助グリッド線が
+   * 消えている」ように見える（目盛りは yMax 未満の最後の倍数までしか
+   * 描かれないため）。そこで最終的に yMin/yMax を目盛り間隔の倍数に
+   * 外側へスナップし、グラフ枠の上下端に必ず補助線が来るようにする。
+   */
+  static _marginFromExtent(lo, hi) {
+    if (!isFinite(lo) || !isFinite(hi)) {
+      return { yMin: -2, yMax: 2 };
+    }
+    if (lo === hi) {
+      lo -= 1;
+      hi += 1;
+    }
+    const range  = hi - lo;
+    const margin = Math.max(range * 0.15, 0.5);
+    let yMin = lo - margin;
+    let yMax = hi + margin;
+
+    if (yMin > 0) yMin = Math.min(yMin, 0);
+    if (yMax < 0) yMax = Math.max(yMax, 0);
+
+    const step = MotionGraphRenderer.computeTickStep(yMax - yMin);
+    yMin = Math.floor(yMin / step) * step;
+    yMax = Math.ceil(yMax / step) * step;
+
+    return { yMin, yMax };
+  }
+
+  /**
+   * Canvas 1枚につき単一カーブしか描かない場面（自動導出グラフ・模範解答）向けに、
+   * x-t/v-t/a-t 間で見た目（実線・太さ）を揃えたカーブスタイルを返す。
+   *
+   * STYLE_PRESETS の bw は本来「複数カーブが同一 Canvas に重なる」場面のために
+   * 種類ごとに線幅・破線パターンを変えているが、このアプリでは drawCurve の
+   * 呼び出し箇所が常に単一カーブであるため、その描き分けは機能しておらず、
+   * 同じ運動の対等な3つの側面（位置・速度・加速度）が「グラフごとに線の太さが
+   * 違って見える」という副作用だけが残る。色は種類ごとの意味を保ちつつ、
+   * 実線・太さ（xt の値を基準とする）を統一する。
+   *
+   * @param {Object} preset STYLE_PRESETS.bw / .color などのプリセットオブジェクト
+   * @param {'xt'|'vt'|'at'} kind
+   * @returns {Object} drawCurve に渡せるカーブスタイル
+   */
+  static singleCurveStyle(preset, kind) {
+    const p = preset || {};
+    const base = p[kind] || {};
+    const ref  = p.xt || base;
+    return Object.assign({}, base, { dashed: false, dashPattern: [], lineWidth: ref.lineWidth });
+  }
+
+  /**
+   * 模範解答として単独描画するカーブのスタイルを返す
+   * （x-t/v-t/a-t 間で実線・太さを揃える singleCurveStyle に委譲）。
+   *
+   * @param {'xt'|'vt'|'at'} kind
+   */
+  _solidCurveStyle(kind) {
+    return KinematicsProblemGenerator.singleCurveStyle(this.state.styleConfig, kind);
+  }
+
+  /**
    * Curve を Canvas に描画する（カーブ本体 + リサー + 未定義マーカー）。
    * 運動グラフ特有の要素（discontinuities / undefinedInstants）を
    * 一貫した見た目で扱うための共通ヘルパー。
@@ -129,7 +244,7 @@ class KinematicsProblemGenerator {
     const sc = this.state.styleConfig || {};
     if (!curve || !curve.segments || curve.segments.length === 0) return;
 
-    r.drawCurve(curve, sc[curve.kind] || {}, tMin, tMax);
+    r.drawCurve(curve, this._solidCurveStyle(curve.kind), tMin, tMax);
 
     (curve.discontinuities || []).forEach(t => {
       const before = this._curveValueApproachingFromLeft(curve, t);
@@ -179,9 +294,21 @@ class KinematicsProblemGenerator {
    *   opts.label  {string}       右上に表示する補助ラベル（凡例代わりの説明文）
    */
   _renderGraphCanvas(opts) {
-    const { curve, graph, kind } = opts;
+    const { curve, graph, kind, range } = opts;
     const canvas = this._makeCanvas();
-    const r = this._makeRenderer(canvas);
+    // 導出カーブは手描きグラフとは値域が大きく異なりうる（例: v-t を積分した
+    // x-t の変位は手描き v の範囲よりずっと大きい）。種類ごとに自分の値域へ
+    // 独立に合わせる（renderDerivedGraphs/_autoValueRange と同じ見せ方）ことで、
+    // 模範解答のカーブが解答欄からはみ出さないようにする。
+    // ただし呼び出し側が range を明示した場合（選択肢問題で複数 Canvas の
+    // 縮尺を揃えたい場合など）はそちらを優先する。
+    const g = this.state.gridConfig;
+    const configOverride = range
+      ? range
+      : curve
+        ? KinematicsProblemGenerator._autoValueRange(curve, g.xMin, g.xMax)
+        : {};
+    const r = this._makeRenderer(canvas, configOverride);
     const c = r.config;
     r.clear();
     r.drawGrid();
@@ -322,13 +449,29 @@ class KinematicsProblemGenerator {
       : 'x-t（位置-時間）';
     const targetLabel = KinematicsProblemGenerator._kindLabel(askFor);
 
+    // 選択肢はすべて同じ種類（askFor）のグラフなので、正答・誤答を問わず
+    // 同じ縮尺で並べないと「見た目の大小だけで選べてしまう／選べなくなる」
+    // という不公平が生じる。よって全選択肢の値域をまとめて1つの range にする
+    // （他の種類の Curve とは独立——本メソッド内で完結する共有レンジ）。
+    const grid = this.state.gridConfig;
+    let lo = Infinity, hi = -Infinity;
+    const correctExtent = KinematicsProblemGenerator._curveExtent(correctCurve, grid.xMin, grid.xMax);
+    lo = Math.min(lo, correctExtent.lo);
+    hi = Math.max(hi, correctExtent.hi);
+    distractorGraphs.forEach(dg => {
+      const ext = KinematicsProblemGenerator._graphExtent(dg, grid.xMin, grid.xMax);
+      lo = Math.min(lo, ext.lo);
+      hi = Math.max(hi, ext.hi);
+    });
+    const choiceRange = KinematicsProblemGenerator._marginFromExtent(lo, hi);
+
     // シャッフル前の並び（順序固定: ① 正答 ② 誤答1 ③ 誤答2 …）と
     // それぞれの canvas/isCorrect を組み立て、決定論的シードでシャッフルする
     // （legacy app の _buildChoices / shuffleChoicesWithSeed と同じ考え方）。
     const items = [
-      { canvas: this._renderGraphCanvas({ curve: correctCurve, kind: askFor }), isCorrect: true },
+      { canvas: this._renderGraphCanvas({ curve: correctCurve, kind: askFor, range: choiceRange }), isCorrect: true },
       ...distractorGraphs.map(g => ({
-        canvas: this._renderGraphCanvas({ graph: g, kind: askFor }),
+        canvas: this._renderGraphCanvas({ graph: g, kind: askFor, range: choiceRange }),
         isCorrect: false,
       })),
     ];
@@ -531,8 +674,11 @@ class KinematicsProblemGenerator {
     const questionCanvases = [this._renderGraphCanvas({ graph: source, kind: source.kind })];
 
     // v-t グラフ上に符号付き面積を塗りつぶして可視化（面積=変位）
+    // source が x-t の場合、derived.vt は手描きの値域とは無関係な導出カーブに
+    // なりうるため、共有 gridConfig ではなく vt 自身の値域に合わせて軸を取る。
     const answerCanvas = this._makeCanvas();
-    const r = this._makeRenderer(answerCanvas);
+    const grid = this.state.gridConfig;
+    const r = this._makeRenderer(answerCanvas, KinematicsProblemGenerator._autoValueRange(vt, grid.xMin, grid.xMax));
     const c = r.config;
     r.clear();
     r.drawGrid();

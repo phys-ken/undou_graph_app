@@ -461,44 +461,10 @@ const App = {
    * @returns {{yMin:number, yMax:number}}
    */
   _autoValueRange(curve, tMin, tMax) {
-    const SAMPLES_PER_UNIT = 10;
-    let lo = Infinity, hi = -Infinity;
-
-    if (curve && curve.segments) {
-      curve.segments.forEach(seg => {
-        const segT0 = Math.max(seg.t0, tMin);
-        const segT1 = Math.min(seg.t1, tMax);
-        if (segT1 <= segT0) return;
-        const span = segT1 - segT0;
-        const n = Math.max(1, Math.ceil(span * SAMPLES_PER_UNIT));
-        for (let i = 0; i <= n; i++) {
-          const t = segT0 + (span * i) / n;
-          const dt = t - seg.t0;
-          const v = seg.c0 + seg.c1 * dt + seg.c2 * dt * dt;
-          if (v < lo) lo = v;
-          if (v > hi) hi = v;
-        }
-      });
-    }
-
-    if (!isFinite(lo) || !isFinite(hi)) {
-      return { yMin: -2, yMax: 2 };
-    }
-    if (lo === hi) {
-      // 一定値（傾き0など）の場合は ±1 の余白を持たせる
-      lo -= 1;
-      hi += 1;
-    }
-    const range  = hi - lo;
-    const margin = Math.max(range * 0.15, 0.5);
-    let yMin = lo - margin;
-    let yMax = hi + margin;
-
-    // 0 を跨ぐグラフは原点をできるだけ含めて見やすくする
-    if (yMin > 0) yMin = Math.min(yMin, 0);
-    if (yMax < 0) yMax = Math.max(yMax, 0);
-
-    return { yMin, yMax };
+    // ロジック本体は KinematicsProblemGenerator._autoValueRange に集約
+    // （自動導出グラフ・模範解答の双方で同じ「種類ごとに値域へ独立に
+    //   合わせ、目盛り間隔の倍数にスナップする」見せ方にするため）。
+    return KinematicsProblemGenerator._autoValueRange(curve, tMin, tMax);
   },
 
   /**
@@ -573,7 +539,9 @@ const App = {
     renderer.drawAxes({ xLabel: '時刻 t [s]', yLabel: spec.yLabel });
 
     if (spec.curve && spec.curve.segments && spec.curve.segments.length > 0) {
-      renderer.drawCurve(spec.curve, preset[spec.kind], tMin, tMax);
+      // 自動導出グラフは Canvas 1枚につき常に単一カーブしか描かないため、
+      // x-t/v-t/a-t 間で実線・太さを揃える（KinematicsProblemGenerator._solidCurveStyle と同趣旨）。
+      renderer.drawCurve(spec.curve, KinematicsProblemGenerator.singleCurveStyle(preset, spec.kind), tMin, tMax);
 
       // 不連続点（リサー）: 直前/直後セグメントの境界値で段差を描く
       (spec.curve.discontinuities || []).forEach(t => {
@@ -589,6 +557,14 @@ const App = {
         renderer.drawUndefinedMarker(t, preset.undefinedMark);
       });
     }
+  },
+
+  /** 自動導出グラフ（x-t/v-t/a-t）の Canvas を PNG としてダウンロードする */
+  downloadDerivedCanvasPNG(kind) {
+    const ids = { xt: 'derivedCanvasXT', vt: 'derivedCanvasVT', at: 'derivedCanvasAT' };
+    const canvas = document.getElementById(ids[kind]);
+    if (!canvas) return;
+    Exporter.downloadCanvasPNG(canvas, `derived_${kind}.png`);
   },
 
   /** 不連続点 t の直前セグメントの終端値を求める（リサー描画用） */
