@@ -75,13 +75,17 @@ REST API は `legacy_nami_app/api/` の vm サンドボックス構成（bridge/
 今後 UI/編集機能を拡張する際も「エディタが表示する区間」と「導出エンジンが対象とする
 区間」は常に一致させること。
 
-**今後の検討事項（ユーザー確認済み・急ぎではない）**
-v-t を直線の折れ線（区分的に一定の加速度＝連続）以外の形、具体的には
-**ガウス記号（床関数 ⌊x⌋）を使った階段状（区間ごとに一定値で、区間境界は不連続に
-ジャンプする）グラフ**を描きたいという要望がある。現在の頂点モデル
-（`MotionGraph.points` + 線形補間で連続な折れ線を作る）は「頂点間を直線で結ぶ」
-ことが前提のため、意図的な不連続（ジャンプ）を表現できない。対応するには
-区間ごとの定数値と境界点を持つ新しいモデル／エディタUX、および
-`Kinematics`（積分・微分）側でのジャンプの扱い（x-t は連続だが角を持つ折れ線、
-a-t は境界で衝撃的＝未定義瞬間になる、等）の設計が必要になる。優先度は低く、
-キリの良いタイミングで再検討する。
+**階段状（ガウス記号）v-t グラフ（実装済み）**
+`StepMotionGraph`（`js/step-motion.js`）は、区間幅1の区分定数 v-t グラフを表す
+モデル（`tStart` を起点に `values[i]` が各単位区間 `[tStart+i, tStart+i+1)` の
+一定速度。区間は連続でなければならず、先頭/末尾からのみ伸縮できる）。
+`StepGraphEditor`（`js/step-editor.js`）でセル選択＋縦ドラッグにより編集する。
+
+導出は既存の Curve パイプラインにそのまま統合している：
+- `Kinematics.curveFromStepGraph(stepGraph)` → vt の Curve（区間境界に discontinuities）
+- `Kinematics.deriveFromVTStep(stepGraph)` → `{vt, xt, at}`
+  （a-t は各区間内 a=0・境界は撃力的＝`undefinedInstants`、x-t は角を持つ連続な折れ線）
+
+`App.graphMode` は `'vt' | 'xt' | 'vt-step'` の3値。設問生成
+（`KinematicsProblemGenerator`）・REST API（`api/schema.json` の
+`stepMotionGraph` / `kind: 'vt-step'`）も対応済み。

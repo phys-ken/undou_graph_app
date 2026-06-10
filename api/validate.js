@@ -12,12 +12,25 @@ const Point = z.object({
   }),
 });
 
-const GraphSpec = z.object({
-  points: z.array(Point).min(2, 'points には少なくとも2点必要です'),
+const MotionGraphSpec = z.object({
   kind:   z.enum(['vt', 'xt']),
+  points: z.array(Point).min(2, 'points には少なくとも2点必要です'),
   x0:     z.number().optional(),
   label:  z.string().optional(),
 });
+
+// StepMotionGraph.toJSON()/fromJSON() の形に合わせる（js/step-motion.js 参照）。
+// values は「区間 [tStart+i, tStart+i+1) の一定速度」の配列。各要素は実数で良い
+// （0.5 刻みへのスナップはモデル側 paintInterval が行うため、ここでは構造のみ検証する）。
+const StepGraphSpec = z.object({
+  kind:   z.literal('vt-step'),
+  tStart: z.number().int(),
+  values: z.array(z.number().finite()).min(1, 'values には少なくとも1要素必要です'),
+  x0:     z.number().optional(),
+  label:  z.string().optional(),
+});
+
+const GraphSpec = z.discriminatedUnion('kind', [MotionGraphSpec, StepGraphSpec]);
 
 const GridSpec = z.object({
   xMin: z.number().optional(),
@@ -74,7 +87,7 @@ const GenerateRequest = z.object({
   // 手描きグラフ（すべてのタイプで必須の「与えられたグラフ」）
   source: GraphSpec,
   // source.kind と一致させる（MotionGraph.kind の上書き用）。省略時は source.kind を使う。
-  sourceKind: z.enum(['vt', 'xt']).optional(),
+  sourceKind: z.enum(['vt', 'xt', 'vt-step']).optional(),
   // v-t を主入力とした場合の積分定数（x-t 導出に使う初期位置）
   x0: z.number().optional(),
 

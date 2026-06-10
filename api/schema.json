@@ -9,11 +9,22 @@
     "GET /api/output/:session/:file": "Serve a generated file by session+filename"
   },
   "graph": {
-    "description": "MotionGraph spec — matches MotionGraph.toJSON()/fromJSON() (js/motion.js).",
-    "points": "Array of {t:int, value:multiple-of-0.5}, at least 2. Order doesn't matter (sorted internally).",
-    "kind": "'vt' (velocity-time, primary input) | 'xt' (position-time, line segments only — no parabolic arcs by hand)",
-    "x0": "Number (default 0). Initial position used as the integration constant when kind='vt' (x-t is derived by integrating v-t from x0).",
-    "label": "Optional label string (e.g. 'A')."
+    "description": "A graph spec is either a MotionGraph spec (kind='vt'|'xt') or a StepMotionGraph spec (kind='vt-step'). The 'kind' field discriminates between the two shapes. Used for 'source' and for 'choices.distractors' entries.",
+    "motionGraph": {
+      "description": "Matches MotionGraph.toJSON()/fromJSON() (js/motion.js). Continuous piecewise-linear graph (vertices joined by straight lines).",
+      "kind": "'vt' (velocity-time, primary input) | 'xt' (position-time, line segments only — no parabolic arcs by hand)",
+      "points": "Array of {t:int, value:multiple-of-0.5}, at least 2. Order doesn't matter (sorted internally).",
+      "x0": "Number (default 0). Initial position used as the integration constant when kind='vt' (x-t is derived by integrating v-t from x0).",
+      "label": "Optional label string (e.g. 'A')."
+    },
+    "stepMotionGraph": {
+      "description": "Matches StepMotionGraph.toJSON()/fromJSON() (js/step-motion.js). Staircase (Gauss-symbol / floor-function) v-t graph: piecewise-constant velocity over unit-width intervals [tStart+i, tStart+i+1), with intentional discontinuous jumps at interval boundaries (e.g. approximating free fall as 'velocity increases by one step every second').",
+      "kind": "'vt-step' (fixed — always velocity-time; cannot be used as an x-t source)",
+      "tStart": "Integer. Start time of the first interval [tStart, tStart+1).",
+      "values": "Array of numbers, at least 1 element. values[i] = constant velocity over interval [tStart+i, tStart+i+1). Each value is snapped to a multiple of 0.5 by the model — the API does not enforce this on input.",
+      "x0": "Number (default 0). Initial position used as the integration constant for x-t derivation (same role as MotionGraph.x0).",
+      "label": "Optional label string (e.g. 'A')."
+    }
   },
   "grid": {
     "default": { "xMin": 0, "xMax": 10, "yMin": -2, "yMax": 2,
@@ -30,7 +41,7 @@
       "description": "Given a hand-drawn v-t or x-t graph, ask the student to draw the corresponding graph(s) of other kinds (e.g. 'given v-t, draw x-t and a-t').",
       "requiredFields": ["source", "askFor"],
       "askFor": "'xt' | 'vt' | 'at', or an array of these (multiple targets in one problem). Must not include sourceKind.",
-      "optionalFields": ["sourceKind (defaults to source.kind)", "x0 (only meaningful when source.kind/sourceKind === 'vt')"],
+      "optionalFields": ["sourceKind ('vt'|'xt'|'vt-step', defaults to source.kind)", "x0 (only meaningful when source.kind/sourceKind === 'vt' or 'vt-step')"],
       "supportsChoices": false,
       "output": "question.canvases = [source graph, blank answer grid per askFor item]; answer.canvases = [derived curve per askFor item]"
     },
@@ -80,6 +91,12 @@
       "type": "numeric",
       "source": { "kind": "vt", "x0": 0, "points": [{ "t": 0, "value": 0 }, { "t": 4, "value": 2 }, { "t": 8, "value": 2 }, { "t": 10, "value": 0 }] },
       "subtype": "displacement"
+    },
+    "graphConversionVtStep": {
+      "type": "graphConversion",
+      "source": { "kind": "vt-step", "tStart": 0, "values": [1, 2, 3, 4], "x0": 0, "label": "A" },
+      "askFor": ["xt", "at"],
+      "_note": "vt-step sources are always velocity-time (sourceKind defaults to 'vt-step'); a-t will show undefined/impulsive instants at the jump boundaries."
     },
     "graphChoice": {
       "type": "graphChoice",

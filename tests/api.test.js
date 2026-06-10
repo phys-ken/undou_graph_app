@@ -44,6 +44,19 @@ const SOURCE_XT = {
   label: 'A',
 };
 
+const SOURCE_VT_STEP = {
+  kind: 'vt-step',
+  tStart: 0,
+  values: [1, 2, 3, 4],
+  x0: 0,
+  label: 'A',
+};
+
+const TWO_STEP_DISTRACTORS = [
+  { kind: 'vt-step', tStart: 0, values: [4, 3, 2, 1] },
+  { kind: 'vt-step', tStart: 0, values: [1, 1, 1, 1] },
+];
+
 const TWO_DISTRACTORS = [
   { kind: 'xt', points: [{ t: 0, value: 0 }, { t: 4, value: 4 }, { t: 8, value: 12 }, { t: 10, value: 12 }] },
   { kind: 'xt', points: [{ t: 0, value: 0 }, { t: 4, value: 8 }, { t: 8, value: 8 }, { t: 10, value: 0 }] },
@@ -148,6 +161,57 @@ describe('validate.js — バリデーション', () => {
     assert.ok(!r.success);
   });
 
+  // ── vt-step（階段状グラフ）スペック ──────────────────────────────
+  it('正常な vt-step source を受け入れる（graphConversion）', () => {
+    const r = validateRequest({ type: 'graphConversion', source: SOURCE_VT_STEP, askFor: ['xt', 'at'] });
+    assert.ok(r.success);
+  });
+
+  it('vt-step source: values が欠けていれば失敗', () => {
+    const r = validateRequest({
+      type: 'graphConversion',
+      source: { kind: 'vt-step', tStart: 0 },
+      askFor: 'xt',
+    });
+    assert.ok(!r.success);
+  });
+
+  it('vt-step source: values が空配列なら失敗', () => {
+    const r = validateRequest({
+      type: 'graphConversion',
+      source: { kind: 'vt-step', tStart: 0, values: [] },
+      askFor: 'xt',
+    });
+    assert.ok(!r.success);
+  });
+
+  it('vt-step source: tStart が非整数なら失敗', () => {
+    const r = validateRequest({
+      type: 'graphConversion',
+      source: { kind: 'vt-step', tStart: 0.5, values: [1, 2] },
+      askFor: 'xt',
+    });
+    assert.ok(!r.success);
+  });
+
+  it('vt-step source: tStart が欠けていれば失敗', () => {
+    const r = validateRequest({
+      type: 'graphConversion',
+      source: { kind: 'vt-step', values: [1, 2] },
+      askFor: 'xt',
+    });
+    assert.ok(!r.success);
+  });
+
+  it('vt-step source: values に非数値が混ざれば失敗', () => {
+    const r = validateRequest({
+      type: 'graphConversion',
+      source: { kind: 'vt-step', tStart: 0, values: [1, 'two', 3] },
+      askFor: 'xt',
+    });
+    assert.ok(!r.success);
+  });
+
   it('cellSize.w が 15未満なら失敗', () => {
     const r = validateRequest({
       type: 'graphConversion', source: SOURCE_VT, askFor: 'xt',
@@ -201,6 +265,10 @@ describe('Bridge — 初期化', () => {
 
   it('sandbox に MotionGraph が公開される', () => {
     assert.ok(typeof bridge.sandbox.MotionGraph === 'function' || typeof bridge.sandbox.MotionGraph === 'object');
+  });
+
+  it('sandbox に StepMotionGraph が公開される', () => {
+    assert.ok(typeof bridge.sandbox.StepMotionGraph === 'function' || typeof bridge.sandbox.StepMotionGraph === 'object');
   });
 
   it('sandbox に SeededRandom が公開される', () => {
@@ -261,6 +329,14 @@ describe('Bridge.generate — graphConversion（v-t から x-t/a-t を導出）'
     assert.equal(r.files.answer.length, 2);
   });
 
+  it('vt-step（階段状）グラフを入力にしても動作する', () => {
+    const r = gen({ type: 'graphConversion', source: SOURCE_VT_STEP, askFor: ['xt', 'at'] }, 'gc-step1');
+    assert.ok(r.success);
+    assert.equal(r.files.question.length, 3); // [source, blank xt, blank at]
+    assert.equal(r.files.answer.length, 2);
+    r.files.answer.forEach(f => assert.ok(fs.existsSync(f.path)));
+  });
+
   it('manifest.json が保存され request/response を含む', () => {
     const r = gen({ type: 'graphConversion', source: SOURCE_VT, askFor: 'xt' }, 'gc6');
     assert.ok(fs.existsSync(r.files.manifest));
@@ -307,6 +383,12 @@ describe('Bridge.generate — numeric（数値・記述問題）', () => {
     const r = gen({ type: 'numeric', source: SOURCE_VT, subtype: 'describe' }, 'num5');
     assert.ok(r.success);
     assert.ok(r.answerText.length > 0);
+  });
+
+  it('vt-step source: displacement の自由記述問題が生成できる', () => {
+    const r = gen({ type: 'numeric', source: SOURCE_VT_STEP, subtype: 'displacement' }, 'num-step1');
+    assert.ok(r.success);
+    assert.ok(r.answerText.includes('変位'));
   });
 
   it('params.interval を指定した区間がそのまま使われる', () => {
@@ -384,6 +466,17 @@ describe('Bridge.generate — graphChoice（グラフ選択肢問題）', () => 
     }, 'gch6');
     assert.equal(r.correctIndex, 0);
     assert.equal(r.files.choices[0].isCorrect, true);
+  });
+
+  it('vt-step source + vt-step distractors でも動作する', () => {
+    const r = gen({
+      type: 'graphChoice', source: SOURCE_VT_STEP, sourceKind: 'vt-step', askFor: 'xt',
+      choices: { enabled: true, count: 3, distractors: TWO_STEP_DISTRACTORS },
+    }, 'gch-step1');
+    assert.ok(r.success);
+    assert.equal(r.files.choices.length, 3);
+    const correct = r.files.choices.filter(c => c.isCorrect);
+    assert.equal(correct.length, 1);
   });
 
   it('選択肢ラベルは丸数字 ①②③ の形式', () => {

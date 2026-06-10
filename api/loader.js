@@ -24,6 +24,7 @@ const JS_FILES = [
   { file: 'random.js',     expose: ['SeededRandom'] },
   { file: 'styles.js',     expose: ['STYLE_PRESETS', 'cloneStylePreset'] },
   { file: 'motion.js',     expose: ['MotionGraph'] },
+  { file: 'step-motion.js', expose: ['StepMotionGraph'] },
   { file: 'kinematics.js', expose: ['Kinematics'] },
   { file: 'renderer.js',   expose: ['MotionGraphRenderer'] },
   { file: 'problems.js',   expose: ['KinematicsProblemGenerator'] },

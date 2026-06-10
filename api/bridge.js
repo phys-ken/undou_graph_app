@@ -23,7 +23,7 @@ class Bridge {
     this.sandbox = buildSandbox();
     loadAllJsModules(this.sandbox, this.jsDir);
     const required = [
-      'MotionGraph', 'SeededRandom', 'STYLE_PRESETS',
+      'MotionGraph', 'StepMotionGraph', 'SeededRandom', 'STYLE_PRESETS',
       'Kinematics', 'MotionGraphRenderer', 'KinematicsProblemGenerator',
     ];
     for (const n of required) {

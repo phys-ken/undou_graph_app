@@ -28,9 +28,22 @@ function buildState(spec, sandbox) {
   };
 }
 
-/** spec のグラフ JSON を MotionGraph インスタンスに変換する */
+/**
+ * spec のグラフ JSON を MotionGraph または StepMotionGraph インスタンスに変換する。
+ * kind === 'vt-step' のときだけ StepMotionGraph を構築する
+ * （StepMotionGraph.kind は固定でコンストラクタが設定するため、
+ *   fromJSON 相当のフィールド代入を個別に行う — kind 自体は上書きしない）。
+ */
 function buildGraph(json, sandbox) {
   if (!json) return null;
+  if (json.kind === 'vt-step') {
+    const g = new sandbox.StepMotionGraph();
+    g.tStart = json.tStart;
+    g.values = [...json.values];
+    g.x0 = json.x0 ?? 0;
+    g.label = json.label ?? 'A';
+    return g;
+  }
   return new sandbox.MotionGraph().fromJSON(json);
 }
 
@@ -99,15 +112,22 @@ function autoAdjustYRange(spec, state, sandbox) {
   const source = buildGraph(spec.source, sandbox);
   if (!source || source.isEmpty()) return;
 
+  // KinematicsProblemGenerator._deriveForSource（js/problems.js）と同じ分岐に揃える。
+  // StepMotionGraph.kind は固定（'vt-step'）のため、その場合は kind の上書きをしない。
   const sourceKind = spec.sourceKind || source.kind;
-  if (sourceKind !== source.kind) source.kind = sourceKind;
-  if (sourceKind === 'vt') {
-    source.x0 = (spec.x0 !== undefined) ? spec.x0 : (source.x0 ?? 0);
+  let derived;
+  if (sourceKind === 'vt-step') {
+    if (spec.x0 !== undefined) source.x0 = spec.x0;
+    derived = sandbox.Kinematics.deriveFromVTStep(source);
+  } else {
+    if (sourceKind !== source.kind) source.kind = sourceKind;
+    if (sourceKind === 'vt') {
+      source.x0 = (spec.x0 !== undefined) ? spec.x0 : (source.x0 ?? 0);
+    }
+    derived = (sourceKind === 'vt')
+      ? sandbox.Kinematics.deriveFromVT(source)
+      : sandbox.Kinematics.deriveFromXT(source);
   }
-
-  const derived = (sourceKind === 'vt')
-    ? sandbox.Kinematics.deriveFromVT(source)
-    : sandbox.Kinematics.deriveFromXT(source);
 
   let maxAbs = source.getMaxAbsValue();
   for (const kind of ['xt', 'vt', 'at']) {
