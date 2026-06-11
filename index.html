@@ -84,6 +84,48 @@
       </div>
     </div>
 
+    <!-- 文字サイズ設定 -->
+    <div class="settings-group">
+      <h3>文字サイズ設定</h3>
+      <div class="setting-row">
+        <label>サイズ</label>
+        <div class="font-size-inputs">
+          <input type="range" id="fontSizeRange" min="8" max="24" value="12" step="1"
+                 oninput="App.onFontSizeChange(this.value)">
+          <input type="number" id="fontSizeNumber" min="8" max="24" value="12" step="1"
+                 onchange="App.onFontSizeChange(this.value)">
+          <span class="unit">px</span>
+        </div>
+      </div>
+      <p class="apply-hint">グラフ内テキスト（軸ラベル・目盛り・原点・凡例・"?"マーカー）のサイズを変更します</p>
+    </div>
+
+    <!-- 表示項目設定 -->
+    <div class="settings-group">
+      <details class="cell-size-details" id="displaySettingsDetails">
+        <summary>表示項目設定</summary>
+        <div class="display-options-container">
+          <label><input type="checkbox" id="showGrid" checked onchange="App.onDisplayOptionChange()"> グリッド</label>
+          <label><input type="checkbox" id="showAxes" checked onchange="App.onDisplayOptionChange()"> 軸（矢印・原点）</label>
+          <label><input type="checkbox" id="showTicksX" checked onchange="App.onDisplayOptionChange()"> 横軸目盛り数値</label>
+          <label><input type="checkbox" id="showTicksY" checked onchange="App.onDisplayOptionChange()"> 縦軸目盛り数値</label>
+          <label><input type="checkbox" id="showUnitX" checked onchange="App.onDisplayOptionChange()"> 横軸単位</label>
+          <label><input type="checkbox" id="showUnitY" checked onchange="App.onDisplayOptionChange()"> 縦軸単位</label>
+          <label><input type="checkbox" id="showAxisLabelX" checked onchange="App.onDisplayOptionChange()"> 横軸ラベル（時刻 t）</label>
+          <label><input type="checkbox" id="showAxisLabelY" checked onchange="App.onDisplayOptionChange()"> 縦軸ラベル（x/v/a）</label>
+          <label><input type="checkbox" id="showZeroLine" checked onchange="App.onDisplayOptionChange()"> y=0 基準線（軸非表示時）</label>
+          <label><input type="checkbox" id="showLegend" checked onchange="App.onDisplayOptionChange()"> 凡例</label>
+          <label><input type="checkbox" id="showUndefinedMark" checked onchange="App.onDisplayOptionChange()"> 未定義"?"マーカー・面積塗りつぶし</label>
+        </div>
+        <div class="display-preset-row">
+          <button type="button" class="display-preset-btn" onclick="App.applyDisplayPreset('all')">標準</button>
+          <button type="button" class="display-preset-btn" onclick="App.applyDisplayPreset('qualitative')">定性的</button>
+          <button type="button" class="display-preset-btn" onclick="App.applyDisplayPreset('qualitative-grid')">定性的+グリッド</button>
+          <button type="button" class="display-preset-btn" onclick="App.applyDisplayPreset('shape-only')">概形のみ</button>
+        </div>
+      </details>
+    </div>
+
     <!-- 描画スタイル設定 -->
     <div class="settings-group">
       <h3>描画スタイル</h3>

@@ -15,6 +15,20 @@ const App = {
   cellSize:   { w: null, h: null }, // null=自動（580×200 デフォルト）
   styleMode:  'bw',   // 'bw' | 'color'
   x0:         0,      // v-t モードでの初期位置（積分の基準点）
+  fontSize:   12,     // グラフ内テキストのフォントサイズ（8〜24px）
+
+  // グラフ表示項目トグル（renderer の config.showXxx に対応。
+  // showUndefinedMark は "?" マーカーと面積塗りつぶしの統合トグル）
+  displayOptions: {
+    showGrid: true,
+    showAxes: true,
+    showTicksX: true, showTicksY: true,
+    showUnitX: true, showUnitY: true,
+    showAxisLabelX: true, showAxisLabelY: true,
+    showZeroLine: true,
+    showLegend: true,
+    showUndefinedMark: true,
+  },
 
   graph:  null,  // MotionGraph（手描き対象）
   editor: null,  // MotionGraphEditor
@@ -30,6 +44,8 @@ const App = {
     this._loadCellSize();
     this._loadStyleMode();
     this._loadX0();
+    this._loadFontSize();
+    this._loadDisplayOptions();
 
     if (this.graphMode === 'vt-step') {
       this.graph = new StepMotionGraph();
@@ -44,6 +60,8 @@ const App = {
     this._syncGridInputs();
     this._syncCellSizeInputs();
     this._syncStylePresetButtons();
+    this._syncFontSizeInputs();
+    this._syncDisplayOptionInputs();
     this._syncX0Visibility();
     this._updateEditorTitle();
     this._syncProblemSubtypeOptions();
@@ -121,12 +139,14 @@ const App = {
   // localStorage キー
   // ------------------------------------------------------------------
   _KEYS: {
-    graphMode:  'undou_graphMode',
-    gridConfig: 'undou_gridConfig',
-    cellSize:   'undou_cellSize',
-    styleMode:  'undou_styleMode',
-    x0:         'undou_x0',
-    graphData:  'undou_graphData',
+    graphMode:      'undou_graphMode',
+    gridConfig:     'undou_gridConfig',
+    cellSize:       'undou_cellSize',
+    styleMode:      'undou_styleMode',
+    x0:             'undou_x0',
+    graphData:      'undou_graphData',
+    fontSize:       'undou_fontSize',
+    displayOptions: 'undou_displayOptions',
   },
 
   // ------------------------------------------------------------------
@@ -321,6 +341,168 @@ const App = {
   },
 
   // ------------------------------------------------------------------
+  // 文字サイズ（グラフ内テキストのフォントサイズ 8〜24px）
+  // ------------------------------------------------------------------
+  FONT_SIZE_MIN: 8,
+  FONT_SIZE_MAX: 24,
+
+  /** 値を 8〜24 の整数にクランプする。NaN は既定 12 */
+  _clampFontSize(v) {
+    const n = parseInt(v, 10);
+    if (isNaN(n)) return 12;
+    return Math.min(this.FONT_SIZE_MAX, Math.max(this.FONT_SIZE_MIN, n));
+  },
+
+  _loadFontSize() {
+    try {
+      const saved = localStorage.getItem(this._KEYS.fontSize);
+      if (saved !== null) this.fontSize = this._clampFontSize(saved);
+    } catch (_) {}
+  },
+
+  _saveFontSize() {
+    try { localStorage.setItem(this._KEYS.fontSize, String(this.fontSize)); } catch (_) {}
+  },
+
+  _syncFontSizeInputs() {
+    const rangeEl  = document.getElementById('fontSizeRange');
+    const numberEl = document.getElementById('fontSizeNumber');
+    if (rangeEl  && String(rangeEl.value)  !== String(this.fontSize)) rangeEl.value  = this.fontSize;
+    if (numberEl && String(numberEl.value) !== String(this.fontSize)) numberEl.value = this.fontSize;
+  },
+
+  /** スライダー / 数値入力からフォントサイズを変更する */
+  onFontSizeChange(val) {
+    const size = this._clampFontSize(val);
+    if (size === this.fontSize) { this._syncFontSizeInputs(); return; }
+    this.fontSize = size;
+    this._syncFontSizeInputs();
+    this._saveFontSize();
+    this._refreshRenderedViews();
+  },
+
+  // ------------------------------------------------------------------
+  // グラフ表示項目（show/hide トグル + プリセット）
+  // ------------------------------------------------------------------
+  DISPLAY_OPTION_KEYS: [
+    'showGrid', 'showAxes',
+    'showTicksX', 'showTicksY',
+    'showUnitX', 'showUnitY',
+    'showAxisLabelX', 'showAxisLabelY',
+    'showZeroLine', 'showLegend', 'showUndefinedMark',
+  ],
+
+  /**
+   * 表示項目プリセットの値オブジェクトを返す（純粋関数 — テスト容易性のため分離）。
+   * - all              : 標準（全項目 ON）
+   * - qualitative      : 定性的（軸・ラベル・y=0線・"?"マーカーのみ）
+   * - qualitative-grid : 定性的 + グリッド
+   * - shape-only       : 概形のみ（物理量を特定できる情報を全て隠す —
+   *                      グラフ概形選択問題の選択肢用）
+   * showUndefinedMark は全プリセットで ON（「曖昧さを非表示にしない」原則。
+   * 手動チェックボックスでのみ個別 OFF できる）。
+   * @param {string} preset
+   * @returns {Object|null} 不明なプリセット名は null
+   */
+  presetDisplayOptions(preset) {
+    const presets = {
+      'all': {
+        showGrid: true, showAxes: true,
+        showTicksX: true, showTicksY: true,
+        showUnitX: true, showUnitY: true,
+        showAxisLabelX: true, showAxisLabelY: true,
+        showZeroLine: true, showLegend: true, showUndefinedMark: true,
+      },
+      'qualitative': {
+        showGrid: false, showAxes: true,
+        showTicksX: false, showTicksY: false,
+        showUnitX: false, showUnitY: false,
+        showAxisLabelX: true, showAxisLabelY: true,
+        showZeroLine: true, showLegend: false, showUndefinedMark: true,
+      },
+      'qualitative-grid': {
+        showGrid: true, showAxes: true,
+        showTicksX: false, showTicksY: false,
+        showUnitX: false, showUnitY: false,
+        showAxisLabelX: true, showAxisLabelY: true,
+        showZeroLine: true, showLegend: false, showUndefinedMark: true,
+      },
+      'shape-only': {
+        showGrid: false, showAxes: true,
+        showTicksX: false, showTicksY: false,
+        showUnitX: false, showUnitY: false,
+        showAxisLabelX: false, showAxisLabelY: false,
+        showZeroLine: true, showLegend: false, showUndefinedMark: true,
+      },
+    };
+    return presets[preset] ? Object.assign({}, presets[preset]) : null;
+  },
+
+  _loadDisplayOptions() {
+    try {
+      const saved = localStorage.getItem(this._KEYS.displayOptions);
+      if (saved) {
+        const obj = JSON.parse(saved);
+        if (obj && typeof obj === 'object') {
+          // 既定値に上書きマージ（保存ブロブに無い新キーは既定 true で補完＝前方互換）
+          const merged = Object.assign({}, this.displayOptions);
+          this.DISPLAY_OPTION_KEYS.forEach(key => {
+            if (typeof obj[key] === 'boolean') merged[key] = obj[key];
+          });
+          this.displayOptions = merged;
+        }
+      }
+    } catch (_) {}
+  },
+
+  _saveDisplayOptions() {
+    try { localStorage.setItem(this._KEYS.displayOptions, JSON.stringify(this.displayOptions)); } catch (_) {}
+  },
+
+  _syncDisplayOptionInputs() {
+    this.DISPLAY_OPTION_KEYS.forEach(key => {
+      const el = document.getElementById(key);
+      if (el) el.checked = this.displayOptions[key] !== false;
+    });
+  },
+
+  /** チェックボックス変更時: 全チェックボックスの状態を読み取って反映する */
+  onDisplayOptionChange() {
+    this.DISPLAY_OPTION_KEYS.forEach(key => {
+      const el = document.getElementById(key);
+      if (el) this.displayOptions[key] = !!el.checked;
+    });
+    this._saveDisplayOptions();
+    this._refreshRenderedViews();
+  },
+
+  /** プリセットボタン押下時: 表の定義値を一括適用する */
+  applyDisplayPreset(preset) {
+    const values = this.presetDisplayOptions(preset);
+    if (!values) return;
+    this.displayOptions = values;
+    this._syncDisplayOptionInputs();
+    this._saveDisplayOptions();
+    this._refreshRenderedViews();
+  },
+
+  /**
+   * fontSize / displayOptions 変更後の再描画。
+   * エディタを再構築し、自動導出グラフタブが表示中なら導出グラフも更新、
+   * 生成済みの設問があれば模範解答 Canvas にも反映されるよう再生成する。
+   */
+  _refreshRenderedViews() {
+    this._setupEditor();
+    const derivedTab = document.getElementById('tab-derived');
+    if (derivedTab && derivedTab.classList.contains('active')) {
+      this.renderDerivedGraphs();
+    }
+    if (this.currentProblem && this.graph && !this.graph.isEmpty()) {
+      this.generateProblem();
+    }
+  },
+
+  // ------------------------------------------------------------------
   // 描画スタイル
   // ------------------------------------------------------------------
   _loadStyleMode() {
@@ -384,10 +566,23 @@ const App = {
     canvas.style.height = `${size.height}px`;
   },
 
+  /**
+   * fontSize + displayOptions を renderer config 用にまとめる。
+   * _editorGridConfig() / _renderDerivedCanvas() の両方からマージされ、
+   * KinematicsProblemGenerator（模範解答・選択肢・エクスポート）へも
+   * gridConfig 経由で自動伝播する。
+   */
+  _rendererExtras() {
+    return Object.assign({ fontSize: this.fontSize }, this.displayOptions);
+  },
+
   /** MotionGraphRenderer 用の gridConfig（軸名は xMin/xMax/yMin/yMax で統一） */
   _editorGridConfig() {
     const g = this.gridConfig;
-    return { xMin: g.tMin, xMax: g.tMax, yMin: g.valMin, yMax: g.valMax };
+    return Object.assign(
+      { xMin: g.tMin, xMax: g.tMax, yMin: g.valMin, yMax: g.valMax },
+      this._rendererExtras()
+    );
   },
 
   _setupEditor() {
@@ -521,7 +716,10 @@ const App = {
     const canvas = document.getElementById(spec.canvasId);
     if (!canvas) return;
 
-    const gridConfig = { xMin: tMin, xMax: tMax, yMin: spec.range.yMin, yMax: spec.range.yMax };
+    const gridConfig = Object.assign(
+      { xMin: tMin, xMax: tMax, yMin: spec.range.yMin, yMax: spec.range.yMax },
+      this._rendererExtras()
+    );
     const size = MotionGraphRenderer.computeCanvasSize(gridConfig, this.cellSize);
     const PR = 1;
     canvas.width        = size.width  * PR;
@@ -567,7 +765,10 @@ const App = {
     Exporter.downloadCanvasPNG(canvas, `derived_${kind}.png`);
   },
 
-  /** 不連続点 t の直前セグメントの終端値を求める（リサー描画用） */
+  /**
+   * 不連続点 t の直前セグメントの終端値を求める（リサー描画用）
+   * 曲線の最初のセグメントより前には何もない＝静止（値0）とみなす。
+   */
   _curveValueApproachingFromLeft(curve, t) {
     let best = null;
     curve.segments.forEach(seg => {
@@ -576,10 +777,16 @@ const App = {
         best = seg.c0 + seg.c1 * dt + seg.c2 * dt * dt;
       }
     });
+    if (best === null && curve.segments.length > 0 && t <= curve.segments[0].t0 + 1e-6) {
+      best = 0;
+    }
     return best;
   },
 
-  /** 不連続点 t の直後セグメントの始端値を求める（リサー描画用） */
+  /**
+   * 不連続点 t の直後セグメントの始端値を求める（リサー描画用）
+   * 曲線の最後のセグメントより後には何もない＝静止（値0）とみなす。
+   */
   _curveValueApproachingFromRight(curve, t) {
     let best = null;
     curve.segments.forEach(seg => {
@@ -587,6 +794,10 @@ const App = {
         if (best === null) best = seg.c0;
       }
     });
+    if (best === null && curve.segments.length > 0) {
+      const last = curve.segments[curve.segments.length - 1];
+      if (t >= last.t1 - 1e-6) best = 0;
+    }
     return best;
   },
 

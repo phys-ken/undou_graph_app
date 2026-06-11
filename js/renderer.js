@@ -34,23 +34,37 @@ class MotionGraphRenderer {
    * cellSize.w / cellSize.h が null/undefined/0 のとき → デフォルト寸法を返す
    * 指定があるときは (range * cellPx + padding) で算出
    *
-   * @param {Object} gridConfig { xMin, xMax, yMin, yMax }
+   * gridConfig.fontSize が 12 を超えるときは、長くなる軸ラベル・目盛り数値が
+   * クリッピングしないよう padding を fontSize/12 倍に拡大する
+   * （プロット領域のサイズは保ち、余白だけ広げる。nami アプリと同じ方式）。
+   *
+   * @param {Object} gridConfig { xMin, xMax, yMin, yMax, [fontSize] }
    * @param {Object} [cellSize] { w, h } 各々 null=自動
    * @param {Object} [padding]  { left, right, top, bottom } 省略時は DEFAULT_PADDING
    * @returns {{ width: number, height: number }} 論理ピクセル
    */
   static computeCanvasSize(gridConfig, cellSize, padding) {
     const cs  = cellSize || {};
-    const pad = padding  || MotionGraphRenderer.DEFAULT_PADDING;
+    const fontSize = gridConfig.fontSize || 12;
+    const padScale = Math.max(1, fontSize / 12);
+    const basePad  = padding || MotionGraphRenderer.DEFAULT_PADDING;
+    const pad = {
+      left:   Math.round(basePad.left   * padScale),
+      right:  Math.round(basePad.right  * padScale),
+      top:    Math.round(basePad.top    * padScale),
+      bottom: Math.round(basePad.bottom * padScale),
+    };
     const xRange = gridConfig.xMax - gridConfig.xMin;
     const yRange = gridConfig.yMax - gridConfig.yMin;
 
     const width  = (cs.w && cs.w > 0)
       ? Math.round(xRange * cs.w + pad.left + pad.right)
-      : MotionGraphRenderer.DEFAULT_DISP_W;
+      : (MotionGraphRenderer.DEFAULT_DISP_W - basePad.left - basePad.right)
+        + pad.left + pad.right;
     const height = (cs.h && cs.h > 0)
       ? Math.round(yRange * cs.h + pad.top + pad.bottom)
-      : MotionGraphRenderer.DEFAULT_DISP_H;
+      : (MotionGraphRenderer.DEFAULT_DISP_H - basePad.top - basePad.bottom)
+        + pad.top + pad.bottom;
 
     return { width, height };
   }
@@ -90,13 +104,18 @@ class MotionGraphRenderer {
       this.ctx.scale(pr, pr);
     }
 
+    // fontSize > 12 のときは computeCanvasSize と同じ比率で既定 padding を拡大
+    // （呼び出し側が明示的に paddingXxx を渡した場合はそちらを優先）
+    const fontSize = config.fontSize || 12;
+    const padScale = Math.max(1, fontSize / 12);
+    const dp = MotionGraphRenderer.DEFAULT_PADDING;
     this.config = Object.assign({
       xMin: 0,  xMax: 10,
       yMin: -2, yMax: 2,
-      paddingLeft:   52,
-      paddingRight:  52,
-      paddingTop:    32,
-      paddingBottom: 44,
+      paddingLeft:   Math.round(dp.left   * padScale),
+      paddingRight:  Math.round(dp.right  * padScale),
+      paddingTop:    Math.round(dp.top    * padScale),
+      paddingBottom: Math.round(dp.bottom * padScale),
     }, config);
   }
 
@@ -135,8 +154,9 @@ class MotionGraphRenderer {
   }
 
   drawGrid() {
+    const c = this.config;
+    if (c.showGrid === false) return;
     const ctx = this.ctx;
-    const c   = this.config;
     // gridStyle が未指定のときは bw プリセット相当をフォールバック
     const gs  = c.gridStyle || { color: '#999999', lineWidth: 0.8, dashed: true, dashPattern: [2, 3] };
     ctx.save();
@@ -178,10 +198,18 @@ class MotionGraphRenderer {
    *   （x-t / v-t / a-t）に応じた日本語ラベルを渡す
    */
   drawAxes(options = {}) {
-    const ctx    = this.ctx;
-    const c      = this.config;
-    const xLabel = options.xLabel || '時刻 t [s]';
-    const yLabel = options.yLabel || '値';
+    const ctx = this.ctx;
+    const c   = this.config;
+    // 表示項目トグル（config.showXxx === false のときのみ非表示。
+    // キー欠落時は従来どおり全て表示＝後方互換）
+    // showUnitX/Y=false: ラベルから単位部分 "[s]" 等だけ除去（ラベル本体は残す）
+    let xLabel = options.xLabel || '時刻 t [s]';
+    let yLabel = options.yLabel || '値';
+    if (c.showUnitX === false) xLabel = xLabel.replace(/\s*\[.*?\]/g, '');
+    if (c.showUnitY === false) yLabel = yLabel.replace(/\s*\[.*?\]/g, '');
+
+    const baseSize = c.fontSize || 12;
+    const padScale = Math.max(1, baseSize / 12);
 
     ctx.save();
     ctx.strokeStyle = '#000000';
@@ -197,47 +225,69 @@ class MotionGraphRenderer {
     // xMin > 0 のとき x=0 が画面外になるので、y軸をグラフ左端に描く
     const xAxis = c.xMin >= 0 ? Math.max(xLeft, this.toPixel(0, 0).px) : this.toPixel(0, 0).px;
 
-    // t 軸（横軸）
-    ctx.beginPath();
-    ctx.moveTo(xLeft, yAxis);
-    ctx.lineTo(xRight + 14, yAxis);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(xRight + 14, yAxis);
-    ctx.lineTo(xRight + 6,  yAxis - 4);
-    ctx.lineTo(xRight + 6,  yAxis + 4);
-    ctx.closePath();
-    ctx.fill();
+    if (c.showAxes !== false) {
+      // t 軸（横軸）
+      ctx.beginPath();
+      ctx.moveTo(xLeft, yAxis);
+      ctx.lineTo(xRight + 14, yAxis);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(xRight + 14, yAxis);
+      ctx.lineTo(xRight + 6,  yAxis - 4);
+      ctx.lineTo(xRight + 6,  yAxis + 4);
+      ctx.closePath();
+      ctx.fill();
 
-    // 値の軸（縦軸）
-    ctx.beginPath();
-    ctx.moveTo(xAxis, yBottom);
-    ctx.lineTo(xAxis, yTop - 14);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(xAxis,     yTop - 14);
-    ctx.lineTo(xAxis - 4, yTop - 6);
-    ctx.lineTo(xAxis + 4, yTop - 6);
-    ctx.closePath();
-    ctx.fill();
+      // 値の軸（縦軸）
+      ctx.beginPath();
+      ctx.moveTo(xAxis, yBottom);
+      ctx.lineTo(xAxis, yTop - 14);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(xAxis,     yTop - 14);
+      ctx.lineTo(xAxis - 4, yTop - 6);
+      ctx.lineTo(xAxis + 4, yTop - 6);
+      ctx.closePath();
+      ctx.fill();
+    } else if (c.showZeroLine !== false) {
+      // 軸非表示時のみの y=0 基準線。通常（showAxes=true）は t 軸そのものが
+      // y=0 の線を兼ねるため、showZeroLine は showAxes=false のときだけ
+      // 意味を持つ（nami と異なり軸と基準線が同一直線のため）。
+      ctx.save();
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(xLeft, yAxis);
+      ctx.lineTo(xRight, yAxis);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // 軸ラベル（日本語の長いラベルでもクリッピングしないよう右端から
     // 余白方向にはみ出して描画する。textAlign='left' なのでラベル開始位置
     // を基準に右へ伸びる。paddingRight 内に収まる長さを想定。）
-    ctx.font = '12px sans-serif';
-    ctx.textAlign    = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText(xLabel, xRight + 8, yAxis + 4);
+    // showAxisLabelX/Y=false でラベル全体を非表示（概形選択問題用 —
+    // ラベルがあるとどの物理量のグラフか分かってしまうため）。
+    ctx.font = `${baseSize}px sans-serif`;
+    if (c.showAxisLabelX !== false) {
+      ctx.textAlign    = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(xLabel, xRight + Math.round(8 * padScale), yAxis + 4);
+    }
+    if (c.showAxisLabelY !== false) {
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(yLabel, xAxis, yTop - 16);
+    }
 
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(yLabel, xAxis, yTop - 16);
-
-    // 原点 O
-    ctx.font = '12px sans-serif';
-    ctx.textAlign    = 'right';
-    ctx.textBaseline = 'top';
-    ctx.fillText('O', xAxis - 3, yAxis + 3);
+    // 原点 O（軸も目盛りも非表示なら原点表記も意味がないので消す）
+    if (c.showAxes !== false || c.showTicksX !== false || c.showTicksY !== false) {
+      ctx.font = `${baseSize}px sans-serif`;
+      ctx.textAlign    = 'right';
+      ctx.textBaseline = 'top';
+      const oOff = Math.round(3 * padScale);
+      ctx.fillText('O', xAxis - oOff, yAxis + oOff);
+    }
 
     // t 軸目盛り（範囲が広いときはラベル重複を避けるため間隔を自動選択）
     const xStep = MotionGraphRenderer.computeTickStep(c.xMax - c.xMin);
@@ -245,24 +295,28 @@ class MotionGraphRenderer {
     const fmtTick = (v, step) => (step < 1 ? v.toFixed(1) : String(Math.round(v)));
 
     ctx.lineWidth = 1;
-    ctx.font = '11px sans-serif';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'top';
-    for (let x = Math.ceil(c.xMin / xStep) * xStep; x <= c.xMax + 1e-9; x += xStep) {
-      if (Math.abs(x) < 1e-9) continue;
-      const { px } = this.toPixel(x, 0);
-      ctx.beginPath(); ctx.moveTo(px, yAxis - 3); ctx.lineTo(px, yAxis + 3); ctx.stroke();
-      ctx.fillText(fmtTick(x, xStep), px, yAxis + 5);
+    ctx.font = `${Math.round(baseSize * 11 / 12)}px sans-serif`;
+    if (c.showTicksX !== false) {
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'top';
+      for (let x = Math.ceil(c.xMin / xStep) * xStep; x <= c.xMax + 1e-9; x += xStep) {
+        if (Math.abs(x) < 1e-9) continue;
+        const { px } = this.toPixel(x, 0);
+        ctx.beginPath(); ctx.moveTo(px, yAxis - 3); ctx.lineTo(px, yAxis + 3); ctx.stroke();
+        ctx.fillText(fmtTick(x, xStep), px, yAxis + 5);
+      }
     }
 
     // 値の軸目盛り
-    ctx.textAlign    = 'right';
-    ctx.textBaseline = 'middle';
-    for (let y = Math.ceil(c.yMin / yStep) * yStep; y <= c.yMax + 1e-9; y += yStep) {
-      if (Math.abs(y) < 1e-9) continue;
-      const { py } = this.toPixel(0, y);
-      ctx.beginPath(); ctx.moveTo(xAxis - 3, py); ctx.lineTo(xAxis + 3, py); ctx.stroke();
-      ctx.fillText(fmtTick(y, yStep), xAxis - 5, py);
+    if (c.showTicksY !== false) {
+      ctx.textAlign    = 'right';
+      ctx.textBaseline = 'middle';
+      for (let y = Math.ceil(c.yMin / yStep) * yStep; y <= c.yMax + 1e-9; y += yStep) {
+        if (Math.abs(y) < 1e-9) continue;
+        const { py } = this.toPixel(0, y);
+        ctx.beginPath(); ctx.moveTo(xAxis - 3, py); ctx.lineTo(xAxis + 3, py); ctx.stroke();
+        ctx.fillText(fmtTick(y, yStep), xAxis - 5, py);
+      }
     }
 
     ctx.restore();
@@ -382,13 +436,15 @@ class MotionGraphRenderer {
    * @param {Object} style  { color, lineWidth, dashPattern, radius, font }
    */
   drawUndefinedMarker(t, style = {}) {
+    const c = this.config;
+    // showUndefinedMark は "?" マーカーと面積塗りつぶし（drawFilledArea）の統合トグル
+    if (c.showUndefinedMark === false) return;
     const ctx = this.ctx;
-    const c   = this.config;
     const color   = style.color || '#000000';
     const lw      = style.lineWidth ?? 1.2;
     const dash    = style.dashPattern || [3, 2];
     const radius  = style.radius ?? 9;
-    const font    = style.font || 'bold 12px serif';
+    const font    = style.font || `bold ${c.fontSize || 12}px serif`;
 
     const { px }       = this.toPixel(t, 0);
     const { py: yTop } = this.toPixel(0, c.yMax);
@@ -433,6 +489,8 @@ class MotionGraphRenderer {
    *                   spacing, lineWidth, dotRadius }
    */
   drawFilledArea(curve, intervals, fillStyles = {}) {
+    // showUndefinedMark は "?" マーカー（drawUndefinedMarker）との統合トグル
+    if (this.config.showUndefinedMark === false) return;
     if (!curve || !curve.segments || curve.segments.length === 0) return;
     if (!intervals || intervals.length === 0) return;
     const SAMPLES_PER_UNIT = 20;
@@ -613,15 +671,16 @@ class MotionGraphRenderer {
    * @param {Array} items [{label, dashed, dashPattern, lineWidth}]
    */
   drawLegend(items) {
+    const c = this.config;
+    if (c.showLegend === false) return;
     const ctx = this.ctx;
-    const c   = this.config;
     ctx.save();
 
     // 下余白の中央ライン
     const legendY = this.logicalHeight - c.paddingBottom / 2 + 4;
     const { px: xLeft } = this.toPixel(c.xMin, 0);
 
-    ctx.font         = '11px serif';
+    ctx.font         = `${Math.round((c.fontSize || 12) * 11 / 12)}px serif`;
     ctx.textBaseline = 'middle';
     ctx.textAlign    = 'left';
 

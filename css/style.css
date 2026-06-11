@@ -425,6 +425,86 @@ canvas {
 }
 
 /* ============================================================
+   文字サイズ設定（スライダー + 数値入力。nami アプリから移植）
+   ============================================================ */
+.font-size-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-grow: 1;
+  justify-content: flex-end;
+}
+.font-size-inputs input[type="range"] {
+  width: 65px;
+  flex-shrink: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  background: #e1e4e8;
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+.font-size-inputs input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #c9551a;
+  cursor: pointer;
+}
+.font-size-inputs input[type="number"] {
+  width: 38px;
+  padding: 2px 4px;
+  text-align: center;
+}
+.font-size-inputs .unit {
+  font-size: 12px;
+  color: #777;
+}
+
+/* ============================================================
+   表示項目設定（チェックボックス群 + プリセットボタン）
+   ============================================================ */
+.display-options-container {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 8px;
+}
+.display-options-container label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #444;
+  cursor: pointer;
+  user-select: none;
+}
+.display-options-container input[type="checkbox"] {
+  accent-color: #c9551a;
+  cursor: pointer;
+}
+.display-preset-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.display-preset-btn {
+  flex: 1;
+  padding: 4px 5px;
+  border: 1px solid #c8cdd3;
+  border-radius: 4px;
+  background: #fafafa;
+  font-size: 11px;
+  color: #444;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.display-preset-btn:hover { background: #fbe9dc; border-color: #c9551a; color: #c9551a; }
+
+/* ============================================================
    見出し行（h3 + 補足の横並び共通）
    ============================================================ */
 .section-heading-row {
