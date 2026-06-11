@@ -5,7 +5,7 @@
 //   ここで埋めておく必要がある — legacy の GRID_DEFAULTS と同じ役割）。
 const GRID_DEFAULTS = {
   xMin: 0, xMax: 10, yMin: -2, yMax: 2,
-  paddingLeft: 52, paddingRight: 52, paddingTop: 32, paddingBottom: 44,
+  paddingLeft: 52, paddingRight: 68, paddingTop: 32, paddingBottom: 44,
 };
 
 function resolveStyle(style, STYLE_PRESETS) {

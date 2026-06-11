@@ -139,6 +139,16 @@ show/hide トグル（11キー）＋プリセット（4種）を持つ。
   fontSize > 12 のときは `padScale = max(1, fontSize/12)` で padding を拡大し、
   プロット領域サイズは保つ（`computeCanvasSize`/コンストラクタ/translate.js の
   3箇所が同じ式を使う——変えるなら全部揃えること）。
+- **目盛り本数はフォントサイズに反比例して間引く**
+  （`computeFontAwareMaxTicks`、12px 以下は従来の10本上限のまま）。
+  プロット領域のピクセル数は padScale で変わらないため、間引かないと
+  大フォントで目盛り数値が重なって潰れる（nami は値域が ±2 程度で
+  顕在化しなかった、このアプリ固有の問題）。drawGrid と drawAxes は
+  `_tickSteps()` を共有しグリッド線と目盛りの間隔は常に一致する。
+- **DEFAULT_PADDING.right は 68**（nami の 52 ではない）。x 軸ラベル
+  「時刻 t [s]」は 12px で約 58px 必要で、52 だと末尾の "]" が常に
+  クリップされる（nami の 'x [cm]' ≒38px とはラベル長が違う）。
+  drawAxes 側にも `measureText` による右端クランプの保険がある。
 - **`showUndefinedMark` は「未定義 "?" マーカー」と「面積塗りつぶし」の統合トグル**
   （`drawUndefinedMarker`/`drawFilledArea` が同じキーを参照）。全プリセットで ON
   （「曖昧さを非表示にしない」原則）。

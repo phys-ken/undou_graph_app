@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const path = require('node:path');
 const fs = require('node:fs');
@@ -46,7 +46,7 @@ const sourceVT = new MotionGraph().fromJSON({
 const gen = new KinematicsProblemGenerator({
   gridConfig: {
     xMin: 0, xMax: 10, yMin: -4, yMax: 4,
-    paddingLeft: 52, paddingRight: 52, paddingTop: 32, paddingBottom: 44,
+    paddingLeft: 52, paddingRight: 68, paddingTop: 32, paddingBottom: 44,
   },
   styleConfig: STYLE_PRESETS.bw,
   cellSize: { w: null, h: null },

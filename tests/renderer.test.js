@@ -23,9 +23,9 @@ describe('MotionGraphRenderer 定数', () => {
   it('DEFAULT_DISP_H = 200', () => {
     assert.equal(MotionGraphRenderer.DEFAULT_DISP_H, 200);
   });
-  it('DEFAULT_PADDING の値', () => {
+  it('DEFAULT_PADDING の値（right はラベル「時刻 t [s]」が収まる 68）', () => {
     assert.deepEqual(MotionGraphRenderer.DEFAULT_PADDING, {
-      left: 52, right: 52, top: 32, bottom: 44,
+      left: 52, right: 68, top: 32, bottom: 44,
     });
   });
   it('CELL_PX_MIN / CELL_PX_MAX の範囲', () => {
@@ -58,9 +58,9 @@ describe('MotionGraphRenderer.computeCanvasSize', () => {
     assert.equal(s.width, 580);
   });
 
-  it('cellSize.w = 30 → 10*30 + 52+52 = 404', () => {
+  it('cellSize.w = 30 → 10*30 + 52+68 = 420', () => {
     const s = MotionGraphRenderer.computeCanvasSize(grid, { w: 30, h: null });
-    assert.equal(s.width, 404);
+    assert.equal(s.width, 420);
     assert.equal(s.height, 200);  // h は自動のまま
   });
 
@@ -72,14 +72,14 @@ describe('MotionGraphRenderer.computeCanvasSize', () => {
 
   it('cellSize.w = 30, h = 50 → 両方反映', () => {
     const s = MotionGraphRenderer.computeCanvasSize(grid, { w: 30, h: 50 });
-    assert.equal(s.width,  10 * 30 + 104);  // 404
+    assert.equal(s.width,  10 * 30 + 120);  // 420
     assert.equal(s.height, 4  * 50 + 76);   // 276
   });
 
-  it('xMax-xMin = 20 のグリッドで cellW=30 → 20*30 + 104 = 704', () => {
+  it('xMax-xMin = 20 のグリッドで cellW=30 → 20*30 + 120 = 720', () => {
     const big = { xMin: 0, xMax: 20, yMin: -2, yMax: 2 };
     const s = MotionGraphRenderer.computeCanvasSize(big, { w: 30, h: null });
-    assert.equal(s.width, 704);
+    assert.equal(s.width, 720);
   });
 
   it('yMin が負の場合の高さ計算（範囲は yMax-yMin）', () => {
@@ -100,13 +100,13 @@ describe('MotionGraphRenderer.computeCanvasSize', () => {
 
   it('小数を含む cellSize は丸める', () => {
     const s = MotionGraphRenderer.computeCanvasSize(grid, { w: 30.4, h: null });
-    // 10 * 30.4 + 104 = 408 → Math.round で 408
-    assert.equal(s.width, 408);
+    // 10 * 30.4 + 120 = 424 → Math.round で 424
+    assert.equal(s.width, 424);
   });
 
   it('cellSize.w 指定でも h を指定しなければ h はデフォルト 200', () => {
     const s = MotionGraphRenderer.computeCanvasSize(grid, { w: 60 });
-    assert.equal(s.width, 10 * 60 + 104);  // 704
+    assert.equal(s.width, 10 * 60 + 120);  // 720
     assert.equal(s.height, 200);
   });
 });
@@ -131,25 +131,25 @@ describe('MotionGraphRenderer.computeCanvasSize - fontSize', () => {
   });
 
   it('fontSize = 24 → padScale=2、プロット領域は維持し余白だけ拡大', () => {
-    // pad = {left:104, right:104, top:64, bottom:88}
-    // width  = (580-52-52) + 104+104 = 476 + 208 = 684
+    // pad = {left:104, right:136, top:64, bottom:88}
+    // width  = (580-52-68) + 104+136 = 460 + 240 = 700
     // height = (200-32-44) + 64+88   = 124 + 152 = 276
     const s = MotionGraphRenderer.computeCanvasSize({ ...grid, fontSize: 24 });
-    assert.deepEqual(s, { width: 684, height: 276 });
+    assert.deepEqual(s, { width: 700, height: 276 });
   });
 
   it('fontSize = 18 → padScale=1.5、丸め後の padding で算出', () => {
-    // pad = {left:78, right:78, top:48, bottom:66}
-    // width  = 476 + 78+78 = 632
-    // height = 124 + 48+66 = 238
+    // pad = {left:78, right:102, top:48, bottom:66}
+    // width  = 460 + 78+102 = 640
+    // height = 124 + 48+66  = 238
     const s = MotionGraphRenderer.computeCanvasSize({ ...grid, fontSize: 18 });
-    assert.deepEqual(s, { width: 632, height: 238 });
+    assert.deepEqual(s, { width: 640, height: 238 });
   });
 
   it('cellSize 指定時は xRange*cellPx 項は不変で padding 項のみ拡大', () => {
-    // fontSize=24: width = 10*30 + 104+104 = 508, height = 4*50 + 64+88 = 352
+    // fontSize=24: width = 10*30 + 104+136 = 540, height = 4*50 + 64+88 = 352
     const s = MotionGraphRenderer.computeCanvasSize({ ...grid, fontSize: 24 }, { w: 30, h: 50 });
-    assert.equal(s.width,  10 * 30 + 104 + 104);  // 508
+    assert.equal(s.width,  10 * 30 + 104 + 136);  // 540
     assert.equal(s.height, 4  * 50 + 64  + 88);   // 352
   });
 
@@ -162,5 +162,33 @@ describe('MotionGraphRenderer.computeCanvasSize - fontSize', () => {
     );
     assert.equal(s.width,  10 * 30 + 40);  // 340
     assert.equal(s.height, 4  * 50 + 40);  // 240
+  });
+});
+
+// ── computeFontAwareMaxTicks（フォント拡大時の目盛り間引き） ────────────
+describe('MotionGraphRenderer.computeFontAwareMaxTicks', () => {
+  it('fontSize 12 以下では base のまま（従来挙動と互換）', () => {
+    assert.equal(MotionGraphRenderer.computeFontAwareMaxTicks(12), 10);
+    assert.equal(MotionGraphRenderer.computeFontAwareMaxTicks(8), 10);
+    assert.equal(MotionGraphRenderer.computeFontAwareMaxTicks(undefined), 10);
+  });
+
+  it('fontSize に反比例して本数上限が減る', () => {
+    assert.equal(MotionGraphRenderer.computeFontAwareMaxTicks(16), 7);  // floor(10*12/16)
+    assert.equal(MotionGraphRenderer.computeFontAwareMaxTicks(20), 6);  // floor(10*12/20)
+    assert.equal(MotionGraphRenderer.computeFontAwareMaxTicks(24), 5);  // floor(10*12/24)
+  });
+
+  it('下限は 3（極端な base/fontSize でも目盛りが消えない）', () => {
+    assert.equal(MotionGraphRenderer.computeFontAwareMaxTicks(24, 4), 3); // floor(4*12/24)=2 → 3
+  });
+
+  it('computeTickStep と組み合わせると大フォントで間隔が粗くなる', () => {
+    // 値域 19（例: -4〜15）: 12px では step=2、20px では maxTicks=6 → step=5
+    const range = 19;
+    const stepAt12 = MotionGraphRenderer.computeTickStep(range, MotionGraphRenderer.computeFontAwareMaxTicks(12));
+    const stepAt20 = MotionGraphRenderer.computeTickStep(range, MotionGraphRenderer.computeFontAwareMaxTicks(20));
+    assert.equal(stepAt12, 2);
+    assert.equal(stepAt20, 5);
   });
 });

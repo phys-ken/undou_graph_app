@@ -638,7 +638,7 @@ describe('Bridge.generate — fontSize / displayPreset / display', () => {
     const r = gen({ type: 'graphConversion', source: SOURCE_VT, askFor: 'xt', fontSize: 24 }, 'disp4');
     assert.equal(r.gridConfig.fontSize, 24);
     assert.equal(r.gridConfig.paddingLeft, 104);   // 52 * 2
-    assert.equal(r.gridConfig.paddingRight, 104);
+    assert.equal(r.gridConfig.paddingRight, 136);  // 68 * 2
     assert.equal(r.gridConfig.paddingTop, 64);     // 32 * 2
     assert.equal(r.gridConfig.paddingBottom, 88);  // 44 * 2
   });
@@ -649,7 +649,7 @@ describe('Bridge.generate — fontSize / displayPreset / display', () => {
       fontSize: 24, grid: { paddingLeft: 60 },
     }, 'disp5');
     assert.equal(r.gridConfig.paddingLeft, 60);    // 明示値
-    assert.equal(r.gridConfig.paddingRight, 104);  // 未指定側はスケール
+    assert.equal(r.gridConfig.paddingRight, 136);  // 未指定側はスケール (68*2)
   });
 
   it("不明な displayPreset は bridge レベルでもエラーになる", () => {

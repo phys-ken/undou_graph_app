@@ -23,7 +23,10 @@ class MotionGraphRenderer {
   // ── デフォルト定数（cellSize 未指定時の Canvas 寸法）─────────────────
   static DEFAULT_DISP_W = 580;
   static DEFAULT_DISP_H = 200;
-  static DEFAULT_PADDING = { left: 52, right: 52, top: 32, bottom: 44 };
+  // right はこのアプリの長い x 軸ラベル「時刻 t [s]」（12px で約 58px 必要）が
+  // 収まる幅にする。legacy/nami の 52 ではラベル末尾の "]" がクリップされる
+  // （nami のラベル 'x [cm]' は約 38px で 52 に収まっていた — このアプリ固有の問題）。
+  static DEFAULT_PADDING = { left: 52, right: 68, top: 32, bottom: 44 };
   // cellSize の許容範囲（極端値で文字が重なるのを防ぐ）
   static CELL_PX_MIN = 15;
   static CELL_PX_MAX = 120;
@@ -89,6 +92,38 @@ class MotionGraphRenderer {
       if (range / step <= maxTicks) return step;
     }
     return 10 * mag;
+  }
+
+  /**
+   * フォントサイズに応じた目盛り本数の上限を返す
+   *
+   * 目盛り数値の文字が大きくなるほど1ラベルが占める高さ/幅も増えるのに、
+   * computeTickStep が値域だけで間隔を決めると、プロット領域のピクセル数は
+   * 変わらない（padScale は余白だけ広げる設計）ため、フォント拡大時に
+   * ラベル同士が重なって判読不能になる。フォントサイズに反比例して
+   * 本数上限を絞ることで、目盛り間隔のピクセル数／文字高さの比を
+   * 既定（12px・10本）と同等以上に保つ。
+   *
+   * 12px 以下では base のまま（従来挙動と完全互換）。
+   * 例: base=10 のとき 12px→10本, 16px→7本, 20px→6本, 24px→5本。
+   *
+   * @param {number} fontSize グラフ内テキストのフォントサイズ（px）
+   * @param {number} [base=10] 12px 時の本数上限
+   * @returns {number} 目盛り本数の上限（最低 3）
+   */
+  static computeFontAwareMaxTicks(fontSize, base = 10) {
+    const fs = fontSize || 12;
+    return Math.max(3, Math.floor(base * 12 / Math.max(12, fs)));
+  }
+
+  /** config の fontSize を考慮した x/y 目盛り間隔を返す（drawGrid / drawAxes 共用） */
+  _tickSteps() {
+    const c = this.config;
+    const maxTicks = MotionGraphRenderer.computeFontAwareMaxTicks(c.fontSize);
+    return {
+      xStep: MotionGraphRenderer.computeTickStep(c.xMax - c.xMin, maxTicks),
+      yStep: MotionGraphRenderer.computeTickStep(c.yMax - c.yMin, maxTicks),
+    };
   }
 
   constructor(canvas, config) {
@@ -169,8 +204,7 @@ class MotionGraphRenderer {
     const { px: xLeft }   = this.toPixel(c.xMin, 0);
     const { px: xRight }  = this.toPixel(c.xMax, 0);
 
-    const xStep = MotionGraphRenderer.computeTickStep(c.xMax - c.xMin);
-    const yStep = MotionGraphRenderer.computeTickStep(c.yMax - c.yMin);
+    const { xStep, yStep } = this._tickSteps();
 
     for (let x = Math.ceil(c.xMin / xStep) * xStep; x <= c.xMax + 1e-9; x += xStep) {
       const { px } = this.toPixel(x, 0);
@@ -272,7 +306,15 @@ class MotionGraphRenderer {
     if (c.showAxisLabelX !== false) {
       ctx.textAlign    = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(xLabel, xRight + Math.round(8 * padScale), yAxis + 4);
+      // ラベルが Canvas 右端からはみ出さないよう実測幅でクランプする
+      // （paddingRight は既定ラベルが収まる幅にしてあるが、カスタムの長い
+      //   ラベルや明示指定の狭い padding でもクリップだけは防ぐ保険）。
+      const labelW  = ctx.measureText(xLabel).width;
+      const labelX  = Math.min(
+        xRight + Math.round(8 * padScale),
+        this.logicalWidth - 2 - labelW
+      );
+      ctx.fillText(xLabel, Math.max(labelX, xRight + 2), yAxis + 4);
     }
     if (c.showAxisLabelY !== false) {
       ctx.textAlign    = 'center';
@@ -289,9 +331,9 @@ class MotionGraphRenderer {
       ctx.fillText('O', xAxis - oOff, yAxis + oOff);
     }
 
-    // t 軸目盛り（範囲が広いときはラベル重複を避けるため間隔を自動選択）
-    const xStep = MotionGraphRenderer.computeTickStep(c.xMax - c.xMin);
-    const yStep = MotionGraphRenderer.computeTickStep(c.yMax - c.yMin);
+    // t 軸目盛り（範囲が広いとき・フォントが大きいときはラベル重複を
+    // 避けるため間隔を自動選択 — drawGrid と同じ _tickSteps() を共有）
+    const { xStep, yStep } = this._tickSteps();
     const fmtTick = (v, step) => (step < 1 ? v.toFixed(1) : String(Math.round(v)));
 
     ctx.lineWidth = 1;
