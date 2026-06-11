@@ -154,10 +154,24 @@ class KinematicsProblemGenerator {
     return { lo, hi };
   }
 
-  /** 手描き風グラフ（MotionGraph、区分線形）の頂点列から [tMin, tMax] 内の値域 {lo, hi} を求める */
+  /**
+   * 手描き風グラフの [tMin, tMax] 内の値域 {lo, hi} を求める。
+   * MotionGraph（区分線形）は頂点スナップショット、StepMotionGraph
+   * （区分定数）は表示範囲に掛かる区間の値そのものを走査する
+   * （getSnapshot を持たないため — _renderGraphCanvas の描き分けと同じ理由）。
+   */
   static _graphExtent(graph, tMin, tMax) {
     let lo = Infinity, hi = -Infinity;
-    if (graph && !graph.isEmpty() && typeof graph.getSnapshot === 'function') {
+    if (!graph || graph.isEmpty()) return { lo, hi };
+
+    if (graph.kind === 'vt-step') {
+      graph.values.forEach((v, i) => {
+        const t0 = graph.tStart + i;
+        if (t0 + 1 <= tMin || t0 >= tMax) return; // 表示範囲外の区間は無視
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      });
+    } else if (typeof graph.getSnapshot === 'function') {
       graph.getSnapshot(tMin, tMax).forEach(p => {
         if (p.value < lo) lo = p.value;
         if (p.value > hi) hi = p.value;
@@ -305,9 +319,15 @@ class KinematicsProblemGenerator {
    *                                  または階段状カーブ＋リサーとして描く）
    *   opts.kind   {'xt'|'vt'|'at'} 軸ラベル決定用
    *   opts.label  {string}       右上に表示する補助ラベル（凡例代わりの説明文）
+   *   opts.choiceStyle {boolean} 選択肢として描く場合 true。graph 描画に
+   *     手描き風オレンジ（_handDrawnStyle）ではなく正答カーブと同じ
+   *     プリセットスタイル（_solidCurveStyle / sc.riser）を使う。
+   *     正答（curve 描画）と誤答（graph 描画）が同じ Canvas 群に並ぶため、
+   *     色・線幅・リサーの見た目が揃っていないと「スタイルの違いだけで
+   *     正答が見分けられてしまう」（選択肢の公平性の問題）。
    */
   _renderGraphCanvas(opts) {
-    const { curve, graph, kind, range } = opts;
+    const { curve, graph, kind, range, choiceStyle } = opts;
     const canvas = this._makeCanvas();
     // 導出カーブは手描きグラフとは値域が大きく異なりうる（例: v-t を積分した
     // x-t の変位は手描き v の範囲よりずっと大きい）。種類ごとに自分の値域へ
@@ -330,22 +350,28 @@ class KinematicsProblemGenerator {
     if (curve) {
       this._drawCurveWithMarkers(r, curve, c.xMin, c.xMax);
     } else if (graph && graph.kind === 'vt-step' && !graph.isEmpty()) {
-      // 階段状 v-t グラフ（StepMotionGraph）— StepGraphEditor.render() と
+      // 階段状グラフ（StepMotionGraph）— StepGraphEditor.render() と
       // 同じロジックで「区分定数カーブ＋段差リサー」を描く（getSnapshot/points を持たないため）
+      const sc = this.state.styleConfig || {};
+      const style = choiceStyle
+        ? this._solidCurveStyle(kind)
+        : KinematicsProblemGenerator._handDrawnStyle();
       const stepCurve = Kinematics.curveFromStepGraph(graph);
-      const style = KinematicsProblemGenerator._handDrawnStyle();
       r.drawCurve(stepCurve, style, c.xMin, c.xMax);
       stepCurve.discontinuities.forEach(t => {
         const valueBefore = graph.values[t - graph.tStart - 1];
         const valueAfter  = graph.values[t - graph.tStart];
-        r.drawDiscontinuity(t, valueBefore, valueAfter, {
-          color: style.color,
-          dashed: false,
-          lineWidth: style.lineWidth,
-        });
+        // 選択肢では正答（_drawCurveWithMarkers）と同じリサースタイルに
+        // 揃える。手描き元グラフ（問題文側）では従来どおり実線・同色。
+        r.drawDiscontinuity(t, valueBefore, valueAfter, choiceStyle
+          ? (sc.riser || {})
+          : { color: style.color, dashed: false, lineWidth: style.lineWidth });
       });
     } else if (graph && !graph.isEmpty()) {
-      r.drawPolyline(graph.getSnapshot(c.xMin, c.xMax), KinematicsProblemGenerator._handDrawnStyle());
+      const style = choiceStyle
+        ? this._solidCurveStyle(kind)
+        : KinematicsProblemGenerator._handDrawnStyle();
+      r.drawPolyline(graph.getSnapshot(c.xMin, c.xMax), style);
     }
     return canvas;
   }
@@ -414,16 +440,19 @@ class KinematicsProblemGenerator {
   }
 
   // ================================================================
-  // ③ グラフ選択肢型（API 専用 — UI からは生成しない）
+  // ③ グラフ選択肢型
   // ================================================================
   //
-  // CLAUDE.md / CONTEXT.md の方針:
-  //   「グラフが選択肢になる問題はUIからは作らず、API側でのみ対応する」
-  //   「誤答グラフは API 呼び出し側（AIエージェント）が指定する」
-  // この app の役割は「正答グラフの導出・描画 + 呼び出し側が与えた誤答グラフの
-  // 描画 + 決定論的シードによるシャッフル整形」のみであり、誤答そのものを
-  // 生成するロジックは持たない（教育的に「生徒に手描きさせたい」という理由で
-  // UI には絶対に置かない——ボタンを生やさないことで担保する）。
+  // CLAUDE.md の方針（2026-06 改訂）:
+  //   「誤答グラフは呼び出し側が用意する——本クラスは誤答そのものを
+  //    生成するロジックを持たない」
+  // 呼び出し側は2系統:
+  //   - REST API: AI エージェントが誤答を MotionGraph/StepMotionGraph JSON で渡す
+  //   - ブラウザ UI: 教員が誤答を小 Canvas に手描きする（nami アプリと同方式。
+  //     かつては「UI からは作らない」が方針だったが、教員が定番誤答を自分で
+  //     仕込めるよう UI にも開放した。誤答の自動生成を持たない点は不変）
+  // 本クラスの役割は「正答グラフの導出・描画 + 与えられた誤答グラフの描画 +
+  // 決定論的シードによるシャッフル整形」のみ。
 
   /**
    * グラフ選択肢問題を生成する
@@ -438,7 +467,9 @@ class KinematicsProblemGenerator {
    *   params.source      {MotionGraph|StepMotionGraph} 問題文に示す手描きグラフ（与えられたグラフ）
    *   params.sourceKind  {'vt'|'xt'|'vt-step'} source の種類
    *   params.askFor      {'xt'|'vt'|'at'} 選択肢として問う対象（単一）
-   *   params.distractors {Array<Object>} MotionGraph.toJSON() 形状の誤答グラフ JSON 配列
+   *   params.distractors {Array<Object>} 誤答グラフ JSON 配列。各要素は
+   *     MotionGraph.toJSON() 形状（折れ線）または StepMotionGraph.toJSON()
+   *     形状（kind:'vt-step'、階段型——askFor='at' 等の区分定数誤答用）
    *   params.x0          {number} v-t系（'vt'|'vt-step'）始点の場合の積分基準点（x-t 導出に必要）
    *   params.shuffle     {boolean} 選択肢をシャッフルするか（既定 true）
    * @returns {{
@@ -453,9 +484,14 @@ class KinematicsProblemGenerator {
     const derived = KinematicsProblemGenerator._deriveForSource(source, sourceKind, x0);
     const correctCurve = derived[askFor];
 
-    // 誤答グラフを MotionGraph として復元（描画は手描き風ポリライン——
-    // Kinematics.derive* を通さないことで「もっともらしい誤答」の見た目を保つ）
-    const distractorGraphs = distractors.map(json => new MotionGraph().fromJSON(json));
+    // 誤答グラフを kind で判別して復元（描画は Kinematics.derive* を通さない
+    // 「そのまま描き」——もっともらしい誤答の見た目を保つ）。
+    //   - 折れ線（MotionGraph JSON）        → 手描き風ポリライン
+    //   - 階段型（StepMotionGraph JSON）    → 区分定数カーブ＋段差リサー
+    // 正答の a-t（および x-t 由来の v-t）は区分定数＋リサー付きで描かれるため、
+    // 誤答も階段型で渡せないと「リサーの有無」だけで正答が見分けられてしまう。
+    const distractorGraphs = distractors.map(json =>
+      KinematicsProblemGenerator._distractorGraphFromJSON(json));
 
     const sourceLabel = (sourceKind === 'vt' || sourceKind === 'vt-step')
       ? 'v-t（速度-時間）'
@@ -484,7 +520,9 @@ class KinematicsProblemGenerator {
     const items = [
       { canvas: this._renderGraphCanvas({ curve: correctCurve, kind: askFor, range: choiceRange }), isCorrect: true },
       ...distractorGraphs.map(g => ({
-        canvas: this._renderGraphCanvas({ graph: g, kind: askFor, range: choiceRange }),
+        // choiceStyle: 正答と同じプリセットスタイルで描く（色・線幅・リサーの
+        // 見た目の違いだけで正答が見分けられてしまうのを防ぐ）
+        canvas: this._renderGraphCanvas({ graph: g, kind: askFor, range: choiceRange, choiceStyle: true }),
         isCorrect: false,
       })),
     ];
@@ -523,6 +561,19 @@ class KinematicsProblemGenerator {
       correctIndex,
       seed,
     };
+  }
+
+  /**
+   * 誤答グラフ JSON を kind で判別して MotionGraph / StepMotionGraph に復元する。
+   * kind === 'vt-step' なら階段型（api/translate.js buildGraph と同じ判別規約）。
+   * StepMotionGraph.kind はモデル種別の判別子であり物理量を意味しない——
+   * 軸ラベルは askFor から決まる（a-t の誤答を階段型で渡しても 'vt-step' のまま）。
+   */
+  static _distractorGraphFromJSON(json) {
+    if (json && json.kind === 'vt-step') {
+      return new StepMotionGraph().fromJSON(json);
+    }
+    return new MotionGraph().fromJSON(json);
   }
 
   /** 'xt'/'vt'/'at' から日本語の表示ラベルを返す（共通化のため切り出し） */

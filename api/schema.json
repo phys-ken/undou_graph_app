@@ -1,5 +1,5 @@
 {
-  "version": "1.1",
+  "version": "1.2",
   "title": "Kinematics Graph Problem Generator API",
   "description": "Generate physics motion-graph (x-t / v-t / a-t) problem images programmatically. POST a problem spec to /api/generate; receive PNG/DOCX/TXT/ZIP file paths (or inline dataURLs).",
   "endpoints": {
@@ -87,10 +87,10 @@
       "supportsChoices": false
     },
     "graphChoice": {
-      "name": "Graph multiple-choice (API-only — not exposed in the browser UI)",
-      "description": "Per CONTEXT.md, this type exists only in the API: students should hand-draw graphs in the UI, so multiple-choice graph problems are intentionally absent from the browser UI. 'Which graph correctly corresponds to the shown v-t/x-t graph?' — student picks one of N graphs.",
+      "name": "Graph multiple-choice",
+      "description": "'Which graph correctly corresponds to the shown v-t/x-t graph?' — student picks one of N graphs. Also available in the browser UI since v1.2 (teachers hand-draw the distractors there); the API form is unchanged.",
       "requiredFields": ["source", "askFor (single kind, not an array)", "choices.enabled=true"],
-      "distractors": "IMPORTANT: this tool does not generate distractor graphs itself — the caller (an AI agent) must supply each distractor as a full MotionGraph spec (same shape as 'source'). The tool only ensures consistency, layout and output of the supplied graphs.",
+      "distractors": "IMPORTANT: this tool does not generate distractor graphs itself — the caller (an AI agent) must supply each distractor as a full graph spec: either a MotionGraph spec (polyline) or, since v1.2, a StepMotionGraph spec (kind='vt-step', piecewise-constant). Use the step shape for askFor='at' (and for askFor='vt' when the source is x-t): the correct answer there is piecewise-constant WITH vertical jump risers, so polyline distractors would be identifiable by the absence of risers alone. The distractor's 'kind' field only discriminates the JSON shape — axis labels always come from askFor. The tool only ensures consistency, layout and output of the supplied graphs.",
       "supportsChoices": true,
       "choiceOrdering": "KinematicsProblemGenerator.generateGraphChoice ALREADY shuffles internally and returns the final display order with correctIndex + seed — the API does not re-shuffle."
     }
@@ -98,7 +98,7 @@
   "choices": {
     "enabled": "boolean — required (true) for type='graphChoice', forbidden for other types",
     "count": "2..10 (total options including the correct one)",
-    "distractors": "Array of full MotionGraph specs (same shape as 'source'), length must equal count - 1",
+    "distractors": "Array of full graph specs (MotionGraph or StepMotionGraph shape — see 'graph'), length must equal count - 1",
     "shuffle": "default true. Seeded deterministically by hash of (source + sourceKind + askFor + distractors + x0) — same input always produces the same shuffle.",
     "response": "files.choices is an array in DISPLAY order (already final — the generator shuffles internally). Each entry has {path|dataUrl, isCorrect, label}. response.correctIndex is the 0-based index of the correct choice in display order."
   },
@@ -138,6 +138,20 @@
           { "kind": "xt", "points": [{ "t": 0, "value": 0 }, { "t": 4, "value": 8 }, { "t": 8, "value": 8 }, { "t": 10, "value": 0 }] }
         ]
       }
+    },
+    "graphChoiceAtWithStepDistractors": {
+      "type": "graphChoice",
+      "source": { "kind": "vt", "x0": 0, "points": [{ "t": 0, "value": 0 }, { "t": 4, "value": 2 }, { "t": 8, "value": 2 }, { "t": 10, "value": 0 }] },
+      "askFor": "at",
+      "choices": {
+        "enabled": true,
+        "count": 3,
+        "distractors": [
+          { "kind": "vt-step", "tStart": -1, "values": [0, 2, 2, 2, 2, 0, 0, 0, 0, -2, -2, 0] },
+          { "kind": "vt-step", "tStart": -1, "values": [0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 0] }
+        ]
+      },
+      "_note": "askFor='at': the correct a-t is piecewise-constant with jump risers, so distractors use the StepMotionGraph shape (kind='vt-step') to match that look. The distractor 'kind' is a JSON-shape discriminator only — the axis still reads 加速度 a [m/s²] because askFor='at'."
     },
     "graphChoiceShapeOnly": {
       "type": "graphChoice",

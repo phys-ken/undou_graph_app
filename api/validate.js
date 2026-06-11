@@ -77,8 +77,11 @@ const DisplaySpec = z.object({
   showUndefinedMark: z.boolean().optional(),
 }).optional();
 
-// グラフ選択肢の誤答は「呼び出し側が完全な MotionGraph 仕様 JSON を渡す」
-// （CONTEXT.md の方針: 本ツールは誤答グラフの生成ロジックを持たない）。
+// グラフ選択肢の誤答は「呼び出し側が完全なグラフ仕様 JSON を渡す」
+// （本ツールは誤答グラフの生成ロジックを持たない）。GraphSpec は
+// MotionGraph（折れ線）と StepMotionGraph（kind='vt-step'、階段型）の
+// discriminatedUnion なので、askFor='at' 等の区分定数誤答は階段型で渡せる
+// （schema v1.2 — エンジン側 _distractorGraphFromJSON が kind で復元を分ける）。
 const ChoicesSpec = z.object({
   enabled: z.boolean(),
   count: z.number().int().min(2).max(10),

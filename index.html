@@ -210,15 +210,29 @@
           <select id="problemCategory" onchange="App._syncProblemSubtypeOptions()">
             <option value="conversion">グラフ変換</option>
             <option value="numeric">数値・記述</option>
+            <option value="choice">グラフ選択肢</option>
           </select>
         </div>
         <div class="setting-row">
           <label>設問</label>
-          <select id="problemSubtype"></select>
+          <select id="problemSubtype" onchange="App._syncChoicePanel()"></select>
         </div>
         <div class="btn-row">
           <button class="btn-primary" onclick="App.generateProblem()">生成</button>
         </div>
+      </div>
+
+      <!-- グラフ選択肢モード: 誤答編集パネル
+           選択肢① = 正答（自動導出・編集不可のプレビュー）。
+           ② 以降はユーザーが誤答を手描きする（nami アプリの選択肢モードと同方式）。 -->
+      <div id="choicePanel" class="choice-panel" style="display:none">
+        <div class="setting-row">
+          <label>選択肢数（正答含む）</label>
+          <input type="number" id="choiceCount" value="4" min="2" max="10"
+                 onchange="App.onChoiceCountChange()" class="choice-count-input">
+          <span class="choice-hint">選択肢① は正答（自動導出）。② 以降に「生徒が間違えそうなグラフ」を手描きしてください。</span>
+        </div>
+        <div id="choiceList" class="choice-list"></div>
       </div>
 
       <div id="problemOutput" class="problem-output"></div>

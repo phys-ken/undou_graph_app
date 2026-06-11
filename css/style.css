@@ -663,3 +663,88 @@ select:focus {
   margin-top: 16px;
   flex-wrap: wrap;
 }
+
+/* ============================================================
+   グラフ選択肢モード（誤答編集パネル + 選択肢グリッド表示）
+   ============================================================ */
+
+/* 誤答編集パネル全体（problem-controls と同じカード調） */
+.choice-panel {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #d8dde3;
+}
+.choice-panel .setting-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.choice-count-input { width: 64px; }
+
+.choice-hint {
+  font-size: 12px;
+  color: #6a7684;
+  line-height: 1.6;
+}
+
+/* 選択肢一覧（① 正答プレビュー + ②〜 誤答エディタ） */
+.choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.choice-item {
+  border: 1px solid #e3e7ec;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fafbfc;
+}
+.choice-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.choice-item-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #2c3a4a;
+}
+.choice-clear-btn { font-size: 11px; padding: 3px 12px; }
+.choice-distractor-canvas {
+  cursor: crosshair;
+  touch-action: none;
+  background: #fff;
+}
+
+/* 生成結果の選択肢グリッド（2列タイル。PDF の 2 列レイアウトと対応） */
+.choices-display {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+.choices-display-item {
+  border: 1px solid #e3e7ec;
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fafbfc;
+}
+.choices-display-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #2c3a4a;
+  margin-bottom: 4px;
+}
+/* 選択肢 Canvas は列幅に収める（pixelRatio=2 の実寸は style.width で論理表示） */
+.choices-display-item canvas {
+  max-width: 100%;
+  height: auto;
+}
+@media (max-width: 900px) {
+  .choices-display { grid-template-columns: 1fr; }
+}

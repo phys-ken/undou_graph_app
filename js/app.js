@@ -36,6 +36,23 @@ const App = {
   currentProblem: null, // 直近に生成した設問（{ question:{text,canvases}, answer:{text,canvases} }）
 
   // ------------------------------------------------------------------
+  // グラフ選択肢モード（問題種類 'choice'）の状態
+  // ------------------------------------------------------------------
+  // 選択肢① は常に正答（自動導出）で、誤答（②以降）をユーザーが手描きする。
+  // 誤答モデルは「問う対象」で決まる:
+  //   xt      → MotionGraph（折れ線。正答の x-t は曲線を含みうるが、
+  //              手描き x-t は直線のみという既存方針のまま誤答も直線で描く）
+  //   vt / at → StepMotionGraph（区分定数。x-t 由来の v-t と a-t の正答は
+  //              階段状＋段差リサーなので、誤答が折れ線だと「リサーの有無」
+  //              だけで正答が見分けられてしまう）
+  // 誤答セットは問う対象別に保持し、対象を切り替えても消えない。
+  // 配列は count を減らしても切り詰めない（再び増やせば復元される）—
+  // 生成・表示時に先頭 count-1 個だけを使う。
+  choiceCount: 4, // 選択肢数（正答含む 2〜10）
+  choiceDistractors: { xt: [], vt: [], at: [] }, // 対象別の誤答モデル配列
+  _choiceEditors: [], // 表示中の誤答エディタ（再構築時に destroy する）
+
+  // ------------------------------------------------------------------
   // 初期化
   // ------------------------------------------------------------------
   init() {
@@ -46,6 +63,7 @@ const App = {
     this._loadX0();
     this._loadFontSize();
     this._loadDisplayOptions();
+    this._loadChoiceConfig();
 
     if (this.graphMode === 'vt-step') {
       this.graph = new StepMotionGraph();
@@ -147,6 +165,7 @@ const App = {
     graphData:      'undou_graphData',
     fontSize:       'undou_fontSize',
     displayOptions: 'undou_displayOptions',
+    choiceConfig:   'undou_choiceConfig',
   },
 
   // ------------------------------------------------------------------
@@ -270,6 +289,7 @@ const App = {
     this._saveGridConfig();
     this._saveCellSize();
     this._setupEditor();
+    this._syncChoicePanel(); // 誤答エディタの t 範囲・縦軸レンジも追従
   },
 
   // ------------------------------------------------------------------
@@ -457,6 +477,8 @@ const App = {
     if (derivedTab && derivedTab.classList.contains('active')) {
       this.renderDerivedGraphs();
     }
+    // 選択肢モードの誤答エディタ・正答プレビューにも fontSize/表示項目を反映
+    this._syncChoicePanel();
     if (this.currentProblem && this.graph && !this.graph.isEmpty()) {
       this.generateProblem();
     }
@@ -491,6 +513,7 @@ const App = {
     this._saveStyleMode();
     this._syncStylePresetButtons();
     this._setupEditor();
+    this._syncChoicePanel(); // 誤答エディタ・正答プレビューのスタイルも追従
   },
 
   // ------------------------------------------------------------------
@@ -785,6 +808,17 @@ const App = {
       options = (kind === 'vt' || kind === 'vt-step')
         ? [{ value: 'vt2xtat', label: 'v-t から x-t・a-t を導出させる' }]
         : [{ value: 'xt2vtat', label: 'x-t から v-t・a-t を導出させる' }];
+    } else if (category === 'choice') {
+      // グラフ選択肢: 問う対象（askFor）は単一。元グラフと同種は問えない
+      options = (kind === 'vt' || kind === 'vt-step')
+        ? [
+            { value: 'xt', label: '対応する x-t グラフを選ばせる' },
+            { value: 'at', label: '対応する a-t グラフを選ばせる' },
+          ]
+        : [
+            { value: 'vt', label: '対応する v-t グラフを選ばせる' },
+            { value: 'at', label: '対応する a-t グラフを選ばせる' },
+          ];
     } else {
       options = [
         { value: 'acceleration', label: '加速度を求める（数値）' },
@@ -804,6 +838,242 @@ const App = {
     });
     // 同じ種類のサブタイプが残っていれば選択を維持する
     if (options.some(o => o.value === prevValue)) subEl.value = prevValue;
+
+    // 選択肢モードの誤答編集パネルの表示/非表示・中身も追従させる
+    this._syncChoicePanel();
+  },
+
+  // ------------------------------------------------------------------
+  // グラフ選択肢モード（誤答編集パネル）
+  // ------------------------------------------------------------------
+
+  /** 問う対象が階段型（区分定数）の誤答エディタを使うか */
+  _choiceTargetUsesStep(target) {
+    // a-t は常に区分定数。v-t を問えるのは x-t 元グラフのときだけで、
+    // 手描き x-t は直線のみ → 導出 v-t も区分定数（CLAUDE.md の設計ルール）
+    return target === 'vt' || target === 'at';
+  },
+
+  /** 問う対象に応じた空の誤答モデルを作る */
+  _newChoiceDistractor(target) {
+    if (this._choiceTargetUsesStep(target)) return new StepMotionGraph();
+    const g = new MotionGraph();
+    g.kind = 'xt';
+    return g;
+  },
+
+  /** 問う対象に応じた誤答エディタの y 軸ラベル */
+  _choiceTargetYLabel(target) {
+    if (target === 'xt') return '位置 x [m]';
+    if (target === 'vt') return '速度 v [m/s]';
+    return '加速度 a [m/s²]';
+  },
+
+  _loadChoiceConfig() {
+    try {
+      const saved = localStorage.getItem(this._KEYS.choiceConfig);
+      if (!saved) return;
+      const obj = JSON.parse(saved);
+      if (!obj || typeof obj !== 'object') return;
+
+      if (typeof obj.count === 'number') {
+        this.choiceCount = Math.max(2, Math.min(10, Math.round(obj.count)));
+      }
+      const dist = obj.distractors || {};
+      ['xt', 'vt', 'at'].forEach(target => {
+        const arr = Array.isArray(dist[target]) ? dist[target] : [];
+        this.choiceDistractors[target] = arr
+          .map(json => {
+            // モデル種別が対象と食い違う保存データ（手編集・旧版）は黙って捨てる
+            try {
+              if (this._choiceTargetUsesStep(target)) {
+                if (!json || json.kind !== 'vt-step') return null;
+                return new StepMotionGraph().fromJSON(json);
+              }
+              if (!json || !Array.isArray(json.points)) return null;
+              return new MotionGraph().fromJSON(json);
+            } catch (_) { return null; }
+          })
+          .filter(g => g !== null);
+      });
+    } catch (_) {}
+  },
+
+  _saveChoiceConfig() {
+    try {
+      const out = {
+        count: this.choiceCount,
+        distractors: {
+          xt: this.choiceDistractors.xt.map(g => g.toJSON()),
+          vt: this.choiceDistractors.vt.map(g => g.toJSON()),
+          at: this.choiceDistractors.at.map(g => g.toJSON()),
+        },
+      };
+      localStorage.setItem(this._KEYS.choiceConfig, JSON.stringify(out));
+    } catch (_) {}
+  },
+
+  /** 選択肢数入力の変更。配列は切り詰めず、表示・生成時に先頭 count-1 個を使う */
+  onChoiceCountChange() {
+    const el = document.getElementById('choiceCount');
+    if (!el) return;
+    let n = parseInt(el.value, 10);
+    if (isNaN(n)) n = 4;
+    n = Math.max(2, Math.min(10, n));
+    el.value = n;
+    if (n === this.choiceCount) return;
+    this.choiceCount = n;
+    this._saveChoiceConfig();
+    this._syncChoicePanel();
+  },
+
+  /** 誤答1件のクリア（内容があれば確認ダイアログ） */
+  async clearChoiceDistractor(target, idx) {
+    const g = this.choiceDistractors[target] && this.choiceDistractors[target][idx];
+    if (!g) return;
+    if (!g.isEmpty()) {
+      const ok = await this._confirm(`選択肢${KinematicsProblemGenerator.CIRCLED_DIGITS[idx + 1] || idx + 2} の誤答グラフを消去します。よろしいですか？`);
+      if (!ok) return;
+    }
+    g.clear();
+    this._saveChoiceConfig();
+    this._syncChoicePanel();
+  },
+
+  /**
+   * 誤答編集パネル全体を現在の状態（カテゴリ・問う対象・選択肢数・元グラフ）
+   * に同期する。カテゴリが 'choice' 以外なら隠すだけ。
+   *
+   * 誤答エディタの縦軸範囲は「正答カーブの自動レンジ」に追従させる
+   * （grill-me セッションで確定: 正答と同じスケール感で誤答を描けるように。
+   * 元グラフを編集すると次回パネル表示時にグリッドも追従する——頂点は保持）。
+   */
+  _syncChoicePanel() {
+    const panel = document.getElementById('choicePanel');
+    const listEl = document.getElementById('choiceList');
+    if (!panel || !listEl) return;
+
+    const category = document.getElementById('problemCategory')?.value;
+    if (category !== 'choice') {
+      panel.style.display = 'none';
+      this._destroyChoiceEditors();
+      listEl.innerHTML = '';
+      return;
+    }
+
+    panel.style.display = '';
+    const countEl = document.getElementById('choiceCount');
+    if (countEl) countEl.value = this.choiceCount;
+
+    this._destroyChoiceEditors();
+    listEl.innerHTML = '';
+
+    const target = document.getElementById('problemSubtype')?.value;
+    if (!target) return;
+
+    if (!this.graph || this.graph.isEmpty()) {
+      const hint = document.createElement('p');
+      hint.className = 'choice-hint';
+      hint.textContent = '先に「グラフ描画」タブで元になるグラフを描いてください（正答はそこから自動導出されます）。';
+      listEl.appendChild(hint);
+      return;
+    }
+
+    // 正答カーブを導出し、誤答エディタの縦軸範囲を正答の自動レンジに合わせる
+    let derived;
+    try {
+      derived = KinematicsProblemGenerator._deriveForSource(this.graph, this.graph.kind, this.x0);
+    } catch (e) {
+      console.error(e);
+      return;
+    }
+    const correctCurve = derived[target];
+    const g = this.gridConfig;
+    const range = KinematicsProblemGenerator._autoValueRange(correctCurve, g.tMin, g.tMax);
+
+    // ── 選択肢①: 正答プレビュー（編集不可） ─────────────────────────
+    // 出力と同じ描画パス（_renderGraphCanvas）を使い「生成される選択肢①」
+    // と完全に同じ見た目で表示する
+    const generator = new KinematicsProblemGenerator({
+      gridConfig:  this._editorGridConfig(),
+      styleConfig: this._activeStylePreset(),
+      cellSize:    this.cellSize,
+    });
+    const previewItem = this._buildChoiceItemContainer('① 正答（自動導出）', null);
+    previewItem.appendChild(generator._renderGraphCanvas({ curve: correctCurve, kind: target, range }));
+    listEl.appendChild(previewItem);
+
+    // ── 選択肢②〜: 誤答エディタ ─────────────────────────────────────
+    const arr = this.choiceDistractors[target];
+    const need = this.choiceCount - 1;
+    while (arr.length < need) arr.push(this._newChoiceDistractor(target));
+
+    const usesStep = this._choiceTargetUsesStep(target);
+    const editorGridCfg = Object.assign(
+      { xMin: g.tMin, xMax: g.tMax, yMin: range.yMin, yMax: range.yMax },
+      this._rendererExtras()
+    );
+    const size = MotionGraphRenderer.computeCanvasSize(editorGridCfg, this.cellSize);
+
+    for (let i = 0; i < need; i++) {
+      const label = `${KinematicsProblemGenerator.CIRCLED_DIGITS[i + 1] || `(${i + 2})`} 誤答（手描き）`;
+      const item = this._buildChoiceItemContainer(label, () => this.clearChoiceDistractor(target, i));
+
+      const canvas = document.createElement('canvas');
+      canvas.width        = size.width;
+      canvas.height       = size.height;
+      canvas.style.width  = `${size.width}px`;
+      canvas.style.height = `${size.height}px`;
+      canvas.className    = 'choice-distractor-canvas';
+      item.appendChild(canvas);
+      listEl.appendChild(item);
+
+      const renderer = new MotionGraphRenderer(canvas, Object.assign({}, editorGridCfg, {
+        gridStyle:   this._activeStylePreset().grid,
+        stylePreset: this._activeStylePreset(),
+      }));
+      const onUpdate = () => this._saveChoiceConfig();
+      const editor = usesStep
+        ? new StepGraphEditor(canvas, arr[i], renderer, onUpdate,
+            { axisLabels: { xLabel: '時刻 t [s]', yLabel: this._choiceTargetYLabel(target) } })
+        : new MotionGraphEditor(canvas, arr[i], renderer, onUpdate);
+      this._choiceEditors.push(editor);
+    }
+
+    const note = document.createElement('p');
+    note.className = 'choice-hint';
+    note.textContent = usesStep
+      ? '誤答エディタ: 左クリック＝区間を塗る／上下ドラッグ＝値を調整／右クリック＝端の区間を削除。正答と同じ縮尺・同じ段差リサー付きで描かれます。'
+      : '誤答エディタ: 左クリック＝頂点を置く／上下ドラッグ＝値を調整／右クリック＝頂点を削除。出力時は全選択肢が共通の縮尺に揃えられます。';
+    listEl.appendChild(note);
+  },
+
+  /** 選択肢1件分の枠（見出し + クリアボタン）を作る */
+  _buildChoiceItemContainer(labelText, onClear) {
+    const item = document.createElement('div');
+    item.className = 'choice-item';
+    const header = document.createElement('div');
+    header.className = 'choice-item-header';
+    const label = document.createElement('span');
+    label.className = 'choice-item-label';
+    label.textContent = labelText;
+    header.appendChild(label);
+    if (onClear) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn-secondary choice-clear-btn';
+      btn.textContent = 'クリア';
+      btn.onclick = onClear;
+      header.appendChild(btn);
+    }
+    item.appendChild(header);
+    return item;
+  },
+
+  /** 表示中の誤答エディタを全て破棄する（イベントリスナー解除） */
+  _destroyChoiceEditors() {
+    this._choiceEditors.forEach(ed => { try { ed.destroy(); } catch (_) {} });
+    this._choiceEditors = [];
   },
 
   /**
@@ -819,6 +1089,28 @@ const App = {
 
     const category = document.getElementById('problemCategory').value;
     const subtype  = document.getElementById('problemSubtype').value;
+
+    // グラフ選択肢: 誤答が count-1 個すべて描かれているか先に検証する
+    // （空の選択肢を含んだ問題を黙って出力しない）
+    let choiceDistractors = null;
+    if (category === 'choice') {
+      const arr = (this.choiceDistractors[subtype] || []).slice(0, this.choiceCount - 1);
+      const emptyLabels = [];
+      for (let i = 0; i < this.choiceCount - 1; i++) {
+        if (!arr[i] || arr[i].isEmpty()) {
+          emptyLabels.push(KinematicsProblemGenerator.CIRCLED_DIGITS[i + 1] || `(${i + 2})`);
+        }
+      }
+      if (emptyLabels.length > 0) {
+        await this._alert(
+          `誤答グラフが未完成です（選択肢 ${emptyLabels.join('、')} が空）。\n` +
+          '下の誤答編集パネルですべての誤答を描いてから生成してください。'
+        );
+        return;
+      }
+      choiceDistractors = arr;
+    }
+
     const generator = new KinematicsProblemGenerator({
       gridConfig:  this._editorGridConfig(),
       styleConfig: this._activeStylePreset(),
@@ -833,6 +1125,14 @@ const App = {
           source: this.graph,
           sourceKind: this.graph.kind,
           askFor,
+          x0: this.x0,
+        });
+      } else if (category === 'choice') {
+        result = generator.generateGraphChoice({
+          source: this.graph,
+          sourceKind: this.graph.kind,
+          askFor: subtype, // 'xt' | 'vt' | 'at'
+          distractors: choiceDistractors.map(g => g.toJSON()),
           x0: this.x0,
         });
       } else {
@@ -871,6 +1171,33 @@ const App = {
     qText.textContent = result.question.text;
     qSection.appendChild(qText);
     this._appendProblemCanvases(qSection, result.question.canvases, 'q');
+
+    // グラフ選択肢: ①〜の選択肢グリッドを問題セクションに表示する
+    if (result.choices && result.choices.length > 0) {
+      const grid = document.createElement('div');
+      grid.className = 'choices-display';
+      result.choices.forEach((ch, i) => {
+        const cell = document.createElement('div');
+        cell.className = 'choices-display-item';
+        const label = document.createElement('div');
+        label.className = 'choices-display-label';
+        label.textContent = ch.label;
+        cell.appendChild(label);
+        const wrapper = document.createElement('div');
+        wrapper.className = 'canvas-wrapper';
+        const dlBtn = document.createElement('button');
+        dlBtn.type = 'button';
+        dlBtn.textContent = '画像DL';
+        dlBtn.className = 'dl-btn';
+        dlBtn.onclick = () => Exporter.downloadCanvasPNG(ch.canvas, `c_${i + 1}.png`);
+        wrapper.appendChild(ch.canvas);
+        wrapper.appendChild(dlBtn);
+        cell.appendChild(wrapper);
+        grid.appendChild(cell);
+      });
+      qSection.appendChild(grid);
+    }
+
     container.appendChild(qSection);
 
     const aSection = document.createElement('div');
@@ -900,12 +1227,42 @@ const App = {
     });
   },
 
+  /**
+   * 問題セクション用の選択肢配列（Exporter の choices 形式）を返す。
+   * 選択肢問題でなければ undefined（既存の出力形式に影響しない）。
+   * @returns {Array<{canvas, label, isCorrect, showCorrect}>|undefined}
+   */
+  _exportChoices() {
+    const r = this.currentProblem;
+    if (!r || !r.choices || r.choices.length === 0) return undefined;
+    return r.choices.map(ch => ({
+      canvas: ch.canvas, label: ch.label, isCorrect: ch.isCorrect, showCorrect: false,
+    }));
+  },
+
+  /**
+   * 解答セクション用の選択肢配列を返す。全選択肢を繰り返すと PDF が
+   * 倍に膨らむため、正答の1枚だけを「★ 正答」マーク付きで載せる
+   * （正答番号自体は answer.text にも含まれている）。
+   */
+  _exportAnswerChoices() {
+    const r = this.currentProblem;
+    if (!r || !r.choices || r.choices.length === 0) return undefined;
+    const correct = r.choices.find(ch => ch.isCorrect);
+    if (!correct) return undefined;
+    return [{ canvas: correct.canvas, label: correct.label, isCorrect: true, showCorrect: true }];
+  },
+
   /** 問題・解答の全 Canvas を個別 PNG として連続ダウンロードする */
   downloadProblemPNG() {
     if (!this.currentProblem) return;
     const r = this.currentProblem;
     r.question.canvases.forEach((c, i) => Exporter.downloadCanvasPNG(c, `mondai_q_${i + 1}.png`));
-    r.answer.canvases.forEach((c, i) => Exporter.downloadCanvasPNG(c, `mondai_a_${i + 1}.png`));
+    (r.answer.canvases || []).forEach((c, i) => Exporter.downloadCanvasPNG(c, `mondai_a_${i + 1}.png`));
+    (r.choices || []).forEach((ch, i) => {
+      const tag = ch.isCorrect ? '_correct' : '';
+      Exporter.downloadCanvasPNG(ch.canvas, `mondai_c_${i + 1}${tag}.png`);
+    });
   },
 
   /** 問題のみの PDF をダウンロードする */
@@ -913,7 +1270,7 @@ const App = {
     if (!this.currentProblem) return;
     const r = this.currentProblem;
     const sections = [
-      { label: '問題', text: r.question.text, canvases: r.question.canvases },
+      { label: '問題', text: r.question.text, canvases: r.question.canvases, choices: this._exportChoices() },
     ];
     await Exporter.generatePDF('運動グラフ 問題', sections, 'mondai_question.pdf');
   },
@@ -923,8 +1280,8 @@ const App = {
     if (!this.currentProblem) return;
     const r = this.currentProblem;
     const sections = [
-      { label: '問題', text: r.question.text, canvases: r.question.canvases },
-      { label: '解答', text: r.answer.text,   canvases: r.answer.canvases },
+      { label: '問題', text: r.question.text, canvases: r.question.canvases, choices: this._exportChoices() },
+      { label: '解答', text: r.answer.text,   canvases: r.answer.canvases,   choices: this._exportAnswerChoices() },
     ];
     await Exporter.generatePDF('運動グラフ 解答', sections, 'mondai_answer.pdf');
   },
@@ -932,15 +1289,15 @@ const App = {
   /**
    * 問題のみ／問題＋解答の DOCX・PDF・ZIP 共通の section 配列を組み立てる。
    * @param {boolean} includeAnswer 解答セクションを含めるか
-   * @returns {Array<{label, text, canvases}>}
+   * @returns {Array<{label, text, canvases, choices?}>}
    */
   _buildProblemSections(includeAnswer) {
     const r = this.currentProblem;
     const sections = [
-      { label: '【問題】', text: r.question.text, canvases: r.question.canvases },
+      { label: '【問題】', text: r.question.text, canvases: r.question.canvases, choices: this._exportChoices() },
     ];
     if (includeAnswer) {
-      sections.push({ label: '【解答】', text: r.answer.text, canvases: r.answer.canvases });
+      sections.push({ label: '【解答】', text: r.answer.text, canvases: r.answer.canvases, choices: this._exportAnswerChoices() });
     }
     return sections;
   },
@@ -991,7 +1348,12 @@ const App = {
     // ── 画像収集 ─────────────────────────────────────────────────────
     const images = {};
     r.question.canvases.forEach((c, i) => { images[`mondai_q_${i + 1}.png`] = c; });
-    r.answer.canvases.forEach((c, i)   => { images[`mondai_a_${i + 1}.png`] = c; });
+    (r.answer.canvases || []).forEach((c, i) => { images[`mondai_a_${i + 1}.png`] = c; });
+    // 選択肢（正答には _correct タグ — API 出力 ZIP の choice_N_correct.png と同じ規約）
+    (r.choices || []).forEach((ch, i) => {
+      const tag = ch.isCorrect ? '_correct' : '';
+      images[`mondai_c_${i + 1}${tag}.png`] = ch.canvas;
+    });
 
     const extraFiles = {};
 

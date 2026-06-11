@@ -479,6 +479,18 @@ describe('Bridge.generate — graphChoice（グラフ選択肢問題）', () => 
     assert.equal(correct.length, 1);
   });
 
+  it('askFor=at + 階段型 distractors（折れ線 source）でも動作する — schema v1.2', () => {
+    // 正答の a-t は区分定数＋リサー付きなので、誤答も階段型 JSON で渡す
+    // （折れ線誤答だとリサーの有無だけで正答が見分けられてしまう）
+    const r = gen({
+      type: 'graphChoice', source: SOURCE_VT, askFor: 'at',
+      choices: { enabled: true, count: 3, distractors: TWO_STEP_DISTRACTORS },
+    }, 'gch-step-at');
+    assert.ok(r.success);
+    assert.equal(r.files.choices.length, 3);
+    assert.equal(r.files.choices.filter(c => c.isCorrect).length, 1);
+  });
+
   it('選択肢ラベルは丸数字 ①②③ の形式', () => {
     const r = gen({
       type: 'graphChoice', source: SOURCE_VT, askFor: 'xt',

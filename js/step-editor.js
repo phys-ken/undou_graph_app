@@ -29,16 +29,20 @@
  *   区間インデックスは Math.floor(t)（半開区間 [i, i+1) の慣習に合わせる）、
  *   値は 0.5 刻み（Math.round(v*2)/2）で MotionGraph 系と統一する。
  *
- * 階段状モードは常に v-t 専用（x-t・a-t は自動導出のみで手描き対象外）
- * のため、MotionGraphEditor._axisLabels() のような種類別の出し分けは不要で、
- * 軸ラベルは「時刻 t [s]」/「速度 v [m/s]」に固定する。
+ * 軸ラベルは既定で「時刻 t [s]」/「速度 v [m/s]」（メインエディタの階段状
+ * モードは常に v-t 専用のため）。ただしグラフ選択肢モードの誤答エディタでは
+ * 同じ区分定数エディタを a-t（および x-t 由来の v-t）の誤答描きにも流用する
+ * ため、opts.axisLabels で軸ラベルだけ差し替えられるようにしてある
+ * （操作系・スナップ・描画スタイルは共通のまま）。
  */
 class StepGraphEditor {
-  constructor(canvas, graph, renderer, onUpdate) {
+  constructor(canvas, graph, renderer, onUpdate, opts = {}) {
     this.canvas   = canvas;
     this.graph    = graph;
     this.renderer = renderer;
     this.onUpdate = onUpdate || (() => {});
+    this.axisLabels = (opts && opts.axisLabels)
+      || { xLabel: '時刻 t [s]', yLabel: '速度 v [m/s]' };
 
     this.hoverInterval = null; // ホバー中の区間情報 {index, t0, t1, value}
     this.isDragging    = false;
@@ -248,8 +252,8 @@ class StepGraphEditor {
       ctx.restore();
     }
 
-    // 階段状モードは常に v-t 専用なので軸ラベルは固定
-    r.drawAxes({ xLabel: '時刻 t [s]', yLabel: '速度 v [m/s]' });
+    // 軸ラベル（既定は v-t。誤答エディタ流用時は opts.axisLabels で差し替え）
+    r.drawAxes(this.axisLabels);
 
     // 手描き階段グラフ（区分定数カーブ＋段差リサー）
     if (!this.graph.isEmpty()) {

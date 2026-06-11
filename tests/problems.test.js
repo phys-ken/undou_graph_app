@@ -533,3 +533,84 @@ describe('KinematicsProblemGenerator with vt-step source', () => {
     assert.ok(canvas && typeof canvas.getContext === 'function');
   });
 });
+
+// ── 階段型（StepMotionGraph JSON）distractor 対応 ────────────────────────
+// 正答の a-t（および x-t 由来の v-t）は区分定数＋段差リサー付きで描かれるため、
+// 誤答も階段型 JSON で渡せないと「リサーの有無」だけで正答が見分けられてしまう。
+// UI（誤答手描きエディタ）と REST API の両方がこの形式で distractor を渡す。
+describe('KinematicsProblemGenerator._distractorGraphFromJSON', () => {
+  it("kind='vt-step' は StepMotionGraph に復元する", () => {
+    const json = { kind: 'vt-step', tStart: 0, values: [2, 2, 0], x0: 0, label: 'B' };
+    const g = KinematicsProblemGenerator._distractorGraphFromJSON(json);
+    assert.ok(g instanceof StepMotionGraph);
+    assert.equal(g.kind, 'vt-step');
+    assert.equal(g.tStart, 0);
+    assert.deepEqual(g.values, [2, 2, 0]);
+  });
+
+  it("kind='vt'/'xt' は MotionGraph に復元する", () => {
+    const json = { kind: 'xt', points: [{ t: 0, value: 0 }, { t: 4, value: 2 }], x0: 0 };
+    const g = KinematicsProblemGenerator._distractorGraphFromJSON(json);
+    assert.ok(g instanceof MotionGraph);
+    assert.equal(g.kind, 'xt');
+    assert.equal(g.points.length, 2);
+  });
+});
+
+describe('KinematicsProblemGenerator._graphExtent - 階段型', () => {
+  it('区間値の最小・最大を値域として返す', () => {
+    const g = makeStepGraph(0, [1, 3, -2, 0]);
+    const { lo, hi } = KinematicsProblemGenerator._graphExtent(g, 0, 10);
+    close(lo, -2, 'lo');
+    close(hi, 3, 'hi');
+  });
+
+  it('表示範囲 [tMin, tMax] に掛からない区間は値域に含めない', () => {
+    // 区間 [0,1)=5 は tMin=1 より左、区間 [3,4)=-9 は tMax=3 より右 → 両方除外
+    const g = makeStepGraph(0, [5, 1, 2, -9]);
+    const { lo, hi } = KinematicsProblemGenerator._graphExtent(g, 1, 3);
+    close(lo, 1, 'lo');
+    close(hi, 2, 'hi');
+  });
+
+  it('空の StepMotionGraph は Infinity のまま返す（_marginFromExtent がフォールバックする）', () => {
+    const { lo, hi } = KinematicsProblemGenerator._graphExtent(new StepMotionGraph(), 0, 10);
+    assert.equal(lo, Infinity);
+    assert.equal(hi, -Infinity);
+  });
+
+  it('MotionGraph（折れ線）の値域も従来どおり返す（後方互換）', () => {
+    const g = makeGraph([[0, 0], [4, 2], [8, -1]], 'vt', 0);
+    const { lo, hi } = KinematicsProblemGenerator._graphExtent(g, 0, 10);
+    close(lo, -1, 'lo');
+    close(hi, 2, 'hi');
+  });
+});
+
+describe('KinematicsProblemGenerator.generateGraphChoice - 階段型 distractor', () => {
+  it('askFor=at で階段型 distractor を含めて例外なく生成できる', () => {
+    const gen = makeGenerator();
+    const source = makeGraph([[0, 0], [4, 2], [8, 2]], 'vt', 0);
+    const distractors = [
+      { kind: 'vt-step', tStart: 0, values: [2, 2, 2, 2, 0, 0, 0, 0], x0: 0, label: 'B' },
+      { kind: 'xt', points: [{ t: 0, value: 0 }, { t: 8, value: 2 }], x0: 0, label: 'C' },
+    ];
+    const result = gen.generateGraphChoice({
+      source, sourceKind: 'vt', askFor: 'at', distractors, x0: 0,
+    });
+
+    assert.equal(result.choices.length, 3);
+    assert.ok(result.correctIndex >= 0 && result.correctIndex < 3);
+    assert.ok(result.choices[result.correctIndex].isCorrect);
+    result.choices.forEach(ch => assert.ok(ch.canvas && typeof ch.canvas.getContext === 'function'));
+  });
+
+  it('階段型 distractor の内容が変わればシードも（基本的に）変わる', () => {
+    const source = makeGraph([[0, 0], [4, 2]], 'vt', 0);
+    const d1 = [{ kind: 'vt-step', tStart: 0, values: [1, 2], x0: 0 }];
+    const d2 = [{ kind: 'vt-step', tStart: 0, values: [1, 3], x0: 0 }];
+    const s1 = KinematicsProblemGenerator.buildGraphChoiceSeed(source, 'vt', 'at', d1, 0);
+    const s2 = KinematicsProblemGenerator.buildGraphChoiceSeed(source, 'vt', 'at', d2, 0);
+    assert.notEqual(s1, s2);
+  });
+});
