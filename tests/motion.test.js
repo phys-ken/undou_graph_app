@@ -126,25 +126,43 @@ describe('MotionGraph.valueAt', () => {
     assert.equal(g.valueAt(6), 1);
   });
 
-  // ── 端部の扱い（end-ramp は移植しない）──────────────────────────────
-  // Wave.getY は最初/最後の頂点の外側で 0 へ線形に近づく「端部ランプ」を
-  // 持っていたが、運動グラフでは「描いていない区間」に勝手な値（0 への
-  // 直線的な変化）を補って見せると、教員が描いた覚えのない運動を表示
-  // してしまい、かつ Kinematics.curveFromGraph の導出結果（頂点間のみ
-  // を扱う）と食い違う。そのため最初/最後の頂点の外側は null（未定義）
-  // とし、表示と導出の対象区間を完全に一致させる。
-  it('最初の頂点より前は null（未定義）', () => {
+  // ── 端部ランプ（Wave.getY 由来、復活済み）──────────────────────────
+  // 最初/最後の頂点の前後1マスは y=0（基準線）へ線形に近づく
+  // 「端部ランプ」として値を返す（getRampedPoints）。
+  // それよりさらに外側は null（未定義＝描かれていない）のまま。
+  it('最初の頂点の1マス手前は端部ランプで 0 から線形補間される', () => {
     const g = makeGraph([[2, 2], [4, 0]]);
-    assert.equal(g.valueAt(1),   null);
-    assert.equal(g.valueAt(1.5), null);
-    assert.equal(g.valueAt(2),   2);
+    assert.equal(g.valueAt(1),   0); // 端部ランプの起点（0）
+    assert.equal(g.valueAt(1.5), 1); // 0 → 2 の中点
+    assert.equal(g.valueAt(2),   2); // 頂点そのもの
   });
 
-  it('最後の頂点より後は null（未定義）', () => {
+  it('最初の頂点の2マス以上手前は null（未定義）', () => {
+    const g = makeGraph([[2, 2], [4, 0]]);
+    assert.equal(g.valueAt(0.5), null);
+    assert.equal(g.valueAt(0),   null);
+  });
+
+  it('最後の頂点の1マス先は端部ランプで 0 へ線形補間される', () => {
     const g = makeGraph([[2, 0], [4, 2]]);
-    assert.equal(g.valueAt(4),   2);
-    assert.equal(g.valueAt(4.5), null);
-    assert.equal(g.valueAt(5),   null);
+    assert.equal(g.valueAt(4),   2); // 頂点そのもの
+    assert.equal(g.valueAt(4.5), 1); // 2 → 0 の中点
+    assert.equal(g.valueAt(5),   0); // 端部ランプの終点（0）
+  });
+
+  it('最後の頂点の2マス以上先は null（未定義）', () => {
+    const g = makeGraph([[2, 0], [4, 2]]);
+    assert.equal(g.valueAt(5.5), null);
+    assert.equal(g.valueAt(6),   null);
+  });
+
+  it('単一の頂点は前後1マスで 0 へ向かう三角形になる', () => {
+    const g = makeGraph([[3, 4]]);
+    assert.equal(g.valueAt(2), 0);
+    assert.equal(g.valueAt(3), 4);
+    assert.equal(g.valueAt(4), 0);
+    assert.equal(g.valueAt(1), null);
+    assert.equal(g.valueAt(5), null);
   });
 
   it('範囲から離れた t も null', () => {

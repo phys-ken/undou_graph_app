@@ -261,7 +261,10 @@ class KinematicsProblemGenerator {
     });
   }
 
-  /** 不連続点 t の直前セグメントの終端値（リサー描画用。App._curveValueApproachingFromLeft と同じロジック） */
+  /**
+   * 不連続点 t の直前セグメントの終端値（リサー描画用。App._curveValueApproachingFromLeft と同じロジック）
+   * 曲線の最初のセグメントより前には何もない＝静止（値0）とみなす。
+   */
   _curveValueApproachingFromLeft(curve, t) {
     let best = null;
     curve.segments.forEach(seg => {
@@ -270,10 +273,16 @@ class KinematicsProblemGenerator {
         best = seg.c0 + seg.c1 * dt + seg.c2 * dt * dt;
       }
     });
+    if (best === null && curve.segments.length > 0 && t <= curve.segments[0].t0 + 1e-6) {
+      best = 0;
+    }
     return best;
   }
 
-  /** 不連続点 t の直後セグメントの始端値（リサー描画用） */
+  /**
+   * 不連続点 t の直後セグメントの始端値（リサー描画用）
+   * 曲線の最後のセグメントより後には何もない＝静止（値0）とみなす。
+   */
   _curveValueApproachingFromRight(curve, t) {
     let best = null;
     curve.segments.forEach(seg => {
@@ -281,6 +290,10 @@ class KinematicsProblemGenerator {
         if (best === null) best = seg.c0;
       }
     });
+    if (best === null && curve.segments.length > 0) {
+      const last = curve.segments[curve.segments.length - 1];
+      if (t >= last.t1 - 1e-6) best = 0;
+    }
     return best;
   }
 

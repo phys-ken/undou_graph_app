@@ -46,34 +46,53 @@ class MotionGraph {
   }
 
   /**
+   * 頂点リストの前後に、y=0（基準線）へ向かう「端部ランプ」の仮想頂点を
+   * 加えたものを返す（legacy_nami_app の Wave.getY の端部ランプを移植）。
+   *
+   * 例: points = [{t:3, value:4}] のとき
+   *   → [{t:2, value:0}, {t:3, value:4}, {t:4, value:0}]
+   * （最初/最後の頂点の前後1マスで y=0 へ直線的に近づく）
+   *
+   * valueAt/getSnapshot（表示）と Kinematics.curveFromGraph（導出）の
+   * 両方がこの配列を参照することで、「エディタが表示する区間」と
+   * 「導出エンジンが対象とする区間」を一致させたまま端部ランプを持たせる。
+   *
+   * @returns {{t:number, value:number}[]} 頂点が無ければ空配列
+   */
+  getRampedPoints() {
+    if (this.points.length === 0) return [];
+    const first = this.points[0];
+    const last  = this.points[this.points.length - 1];
+    return [
+      { t: first.t - 1, value: 0 },
+      ...this.points,
+      { t: last.t + 1, value: 0 },
+    ];
+  }
+
+  /**
    * 時刻 t における値（線形補間）
    *
-   * 端部の扱い: Wave.getY の「端部ランプ」（最初/最後の点の外側で 0 へ
-   * 線形に近づくランプ）は移植しない。波の場合は媒質が静止状態（y=0）
-   * へ戻る物理的描写として自然だったが、運動グラフでは「描いていない
-   * 区間」に勝手な値（0 への直線的な変化）を補って見せると、教員が
-   * 描いた覚えのない運動を示してしまい誤解を招く。また Kinematics の
-   * 導出（curveFromGraph）は頂点間の区間しか扱わないため、ランプ付きの
-   * 表示と導出結果が食い違う問題もあった。
-   *
-   * そのため、最初の点より前・最後の点より後は「未定義（描かれていない）」
-   * として null を返す。範囲内は頂点間の線形補間。
+   * 最初/最後の頂点そのものの外側は、getRampedPoints() が加える端部
+   * ランプにより前後1マスで y=0（基準線）へ線形に近づく。それより
+   * さらに外側は「未定義（描かれていない）」として null を返す。
    *
    * @returns {number|null} 範囲外なら null
    */
   valueAt(t) {
-    if (this.points.length === 0) return null;
+    const pts = this.getRampedPoints();
+    if (pts.length === 0) return null;
 
-    const first = this.points[0];
-    const last  = this.points[this.points.length - 1];
+    const first = pts[0];
+    const last  = pts[pts.length - 1];
 
     if (t < first.t || t > last.t) return null;
     if (t === first.t) return first.value;
     if (t === last.t)  return last.value;
 
-    for (let i = 0; i < this.points.length - 1; i++) {
-      const a = this.points[i];
-      const b = this.points[i + 1];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
       if (t >= a.t && t <= b.t) {
         const ratio = (t - a.t) / (b.t - a.t);
         return a.value + ratio * (b.value - a.value);
@@ -83,11 +102,11 @@ class MotionGraph {
   }
 
   /**
-   * [tMin, tMax] の描画用点列を返す（頂点が描かれている区間のみ）
+   * [tMin, tMax] の描画用点列を返す（頂点＋端部ランプが描かれている区間のみ）
    * 整数格子点と実際の頂点位置を含めて折れ線を正確に描画できるようにする。
-   * 最初/最後の頂点より外側は valueAt が null を返すため自然に除外され、
-   * 「描いた区間だけが折れ線として表示される」（= Kinematics の導出対象と
-   * 完全に一致する）。
+   * 最初/最後の頂点の前後1マスは getRampedPoints() の端部ランプにより
+   * y=0 へのセグメントとして含まれ、それより外側は valueAt が null を
+   * 返すため自然に除外される（= Kinematics の導出対象と完全に一致する）。
    */
   getSnapshot(tMin, tMax) {
     const tSet = new Set();

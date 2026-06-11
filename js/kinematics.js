@@ -29,12 +29,18 @@ const Kinematics = {
    * 手描きは単一の折れ線（ポリライン）であり連続なので、
    * セグメントは全て直線（c2=0）、不連続点は存在しない。
    *
+   * graph.getRampedPoints()（最初/最後の頂点の前後1マスで y=0 へ近づく
+   * 端部ランプを加えた頂点列）を使うため、頂点が1つしかない場合でも
+   * 前後の端部ランプにより2セグメントの三角形（0→value→0）になる。
+   * これにより MotionGraph の表示（valueAt/getSnapshot）と導出対象の
+   * 区間が常に一致する。
+   *
    * @param {MotionGraph} graph
    * @returns {Curve}
    */
   curveFromGraph(graph) {
     const curve = this._emptyCurve(graph.kind);
-    const pts = graph.points;
+    const pts = graph.getRampedPoints();
     if (pts.length < 2) return curve;
 
     for (let i = 0; i < pts.length - 1; i++) {
@@ -50,15 +56,20 @@ const Kinematics = {
   /**
    * v-t グラフ（手描き）から { vt, xt, at } を導出する。
    *
-   * - vt: 手描きそのもの（連続な区分一次）
+   * - vt: 手描き＋端部ランプ（getRampedPoints、最初/最後の頂点の前後1マスで
+   *       y=0 へ近づく区間）を含む連続な区分一次。
    * - at: 各 v-t セグメントの傾き m = (v1-v0)/(t1-t0) を一定値として持つ
    *       区分定数。隣接セグメントの傾きが異なる接続点では a-t は階段状に
-   *       不連続になるため discontinuities に記録する。
+   *       不連続になるため discontinuities に記録する。端部ランプの傾きが
+   *       実際に描いた最初/最後のセグメントと異なる場合は、その境界
+   *       （= 最初/最後の頂点そのもの）にも記録される。
    * - xt: v(t) を graph.x0 から区分積分して連続な x(t) を構成する。
    *       セグメント内 v(t) = v0 + m*(t-t0) のとき
    *       x(t) = x_start + v0*(t-t0) + (m/2)*(t-t0)^2
    *       となるセグメント { t0, t1, c0: x_start, c1: v0, c2: m/2 } を作り、
    *       x_start を連続的に引き継ぐ（位置は連続 → 不連続点・未定義点なし）。
+   *       先頭セグメントは端部ランプ（t = 最初の頂点.t - 1 から開始）なので、
+   *       graph.x0 は「最初の頂点の1マス手前での位置」を表すことになる。
    *
    * @param {MotionGraph} graph  graph.kind === 'vt'
    * @returns {{ vt: Curve, xt: Curve, at: Curve }}
@@ -73,15 +84,20 @@ const Kinematics = {
     }
 
     let xStart = graph.x0 ?? 0;
-    let prevSlope = null;
+    // ランプ済み曲線の外側（最初の頂点の1マス手前より前／最後の頂点の1マス先より後）
+    // は v=0（静止）とみなす＝a=0 が続いているとみなす。これにより、ランプ境界
+    // そのもの（最初/最後のセグメントの端）でも内部の角と同じ基準で不連続を
+    // 判定でき、「y=0 の端点を明示的に描いたかどうか」で a-t の見た目が
+    // 変わらなくなる。
+    let prevSlope = 0;
 
-    vt.segments.forEach((seg, i) => {
+    vt.segments.forEach((seg) => {
       const m = seg.c1; // セグメントの傾き (= 加速度)
       const v0 = seg.c0;
 
       // a-t: 定数セグメント
       at.segments.push({ t0: seg.t0, t1: seg.t1, c0: m, c1: 0, c2: 0 });
-      if (i > 0 && prevSlope !== null && prevSlope !== m) {
+      if (prevSlope !== m) {
         at.discontinuities.push(seg.t0);
       }
       prevSlope = m;
@@ -92,22 +108,29 @@ const Kinematics = {
       xStart = xStart + v0 * dt + (m / 2) * dt * dt;
     });
 
+    // 曲線の終端より外側も a=0（静止）とみなすため、最後のセグメントの傾きが
+    // 0 でなければ終端にも不連続を記録する。
+    if (prevSlope !== 0) {
+      at.discontinuities.push(vt.segments[vt.segments.length - 1].t1);
+    }
+
     return { vt, xt, at };
   },
 
   /**
    * x-t グラフ（手描き・区分一次のみ）から { xt, vt, at } を導出する。
    *
-   * - xt: 手描きそのもの
+   * - xt: 手描き＋端部ランプ（getRampedPoints、最初/最後の頂点の前後1マスで
+   *       位置 0 へ近づく区間）を含む連続な区分一次。
    * - vt: 各 x-t セグメントの傾き m = (x1-x0)/(t1-t0) を一定値として持つ
-   *       区分定数。内部の頂点（角）で傾きが変わる箇所では速度が
+   *       区分定数。隣接セグメントの傾きが変わる接続点（端部ランプとの
+   *       境界、すなわち最初/最後の頂点そのものを含む）では速度が
    *       不連続にジャンプするため discontinuities に記録する。
    * - at: 各セグメント内では加速度 0（直線運動なので）。
-   *       速度が不連続になる内部の角の時刻は、加速度が撃力的（インパルス的）
+   *       速度が不連続になる接続点の時刻は、加速度が撃力的（インパルス的）
    *       であり物理的に定義できないため、discontinuities と
    *       undefinedInstants の両方に記録する（描画側で破線/グレー表示等の
-   *       特別扱いができるように）。最初/最後の点は内部の角ではないため
-   *       何も記録しない。
+   *       特別扱いができるように）。
    *
    * @param {MotionGraph} graph  graph.kind === 'xt'
    * @returns {{ xt: Curve, vt: Curve, at: Curve }}
@@ -121,9 +144,13 @@ const Kinematics = {
       return { xt, vt, at };
     }
 
-    let prevSlope = null;
+    // ランプ済み曲線の外側（最初の頂点の1マス手前より前／最後の頂点の1マス先より後）
+    // は v=0（静止）とみなす。これにより、ランプ境界そのもの（最初/最後の
+    // セグメントの端）でも内部の角と同じ基準で不連続を判定でき、「x=0 の
+    // 端点を明示的に描いたかどうか」で v-t/a-t の見た目が変わらなくなる。
+    let prevSlope = 0;
 
-    xt.segments.forEach((seg, i) => {
+    xt.segments.forEach((seg) => {
       const m = seg.c1; // セグメントの傾き (= 速度)
 
       // v-t: 定数セグメント
@@ -132,8 +159,8 @@ const Kinematics = {
       // a-t: 各セグメント内は 0
       at.segments.push({ t0: seg.t0, t1: seg.t1, c0: 0, c1: 0, c2: 0 });
 
-      // 内部の角（最初のセグメント以外の開始点 = 前セグメントとの接続点）でのみ判定
-      if (i > 0 && prevSlope !== null && prevSlope !== m) {
+      // 角（前セグメント、または曲線の外側＝静止とみなした基準との接続点）
+      if (prevSlope !== m) {
         const cornerT = seg.t0;
         vt.discontinuities.push(cornerT);
         at.discontinuities.push(cornerT);
@@ -141,6 +168,15 @@ const Kinematics = {
       }
       prevSlope = m;
     });
+
+    // 曲線の終端より外側も v=0（静止）とみなすため、最後のセグメントの速度が
+    // 0 でなければ終端にも不連続を記録する。
+    if (prevSlope !== 0) {
+      const cornerT = xt.segments[xt.segments.length - 1].t1;
+      vt.discontinuities.push(cornerT);
+      at.discontinuities.push(cornerT);
+      at.undefinedInstants.push(cornerT);
+    }
 
     return { xt, vt, at };
   },

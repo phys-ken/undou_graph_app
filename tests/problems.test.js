@@ -148,33 +148,36 @@ describe('KinematicsProblemGenerator.findNegativeIntervals', () => {
     assert.deepEqual(KinematicsProblemGenerator.findNegativeIntervals(vt), []);
   });
 
-  it('セグメント全体が負のとき、その区間をそのまま返す', () => {
+  it('セグメント全体が負のとき、端部ランプを含めた区間をそのまま返す', () => {
+    // 端部ランプにより t=-1 で v=0 → 0 から負へ、t=9 で再び v=0 へ戻るため
+    // 負の区間は [-1, 9] 全体に広がる
     const g = makeGraph([[0, -2], [4, -2], [8, -1]], 'vt', 0);
     const { vt } = Kinematics.deriveFromVT(g);
     const ivs = KinematicsProblemGenerator.findNegativeIntervals(vt);
     assert.equal(ivs.length, 1);
-    close(ivs[0].t0, 0);
-    close(ivs[0].t1, 8);
+    close(ivs[0].t0, -1);
+    close(ivs[0].t1, 9);
   });
 
   it('符号が反転するセグメントはゼロクロス時刻で正しく分割する', () => {
     // (0,2) -> (4,-2): 傾き -1、t=2 で v=0 をまたぐ
+    // 端部ランプにより t=4..5 も v<0（4で-2、5で0）のため [2,5] に拡張される
     const g = makeGraph([[0, 2], [4, -2]], 'vt', 0);
     const { vt } = Kinematics.deriveFromVT(g);
     const ivs = KinematicsProblemGenerator.findNegativeIntervals(vt);
     assert.equal(ivs.length, 1);
     close(ivs[0].t0, 2);
-    close(ivs[0].t1, 4);
+    close(ivs[0].t1, 5);
   });
 
   it('複数の負区間が隣接していれば結合する', () => {
-    // (0,-1)-(2,-1)-(4,-1): 連続する2セグメントとも全負 → 1区間に結合
+    // (0,-1)-(2,-1)-(4,-1): 連続する2セグメントとも全負 → 端部ランプ込みで [-1,5] に結合
     const g = makeGraph([[0, -1], [2, -1], [4, -1]], 'vt', 0);
     const { vt } = Kinematics.deriveFromVT(g);
     const ivs = KinematicsProblemGenerator.findNegativeIntervals(vt);
     assert.equal(ivs.length, 1);
-    close(ivs[0].t0, 0);
-    close(ivs[0].t1, 4);
+    close(ivs[0].t0, -1);
+    close(ivs[0].t1, 5);
   });
 });
 
