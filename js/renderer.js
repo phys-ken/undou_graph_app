@@ -322,15 +322,6 @@ class MotionGraphRenderer {
       ctx.fillText(yLabel, xAxis, yTop - 16);
     }
 
-    // 原点 O（軸も目盛りも非表示なら原点表記も意味がないので消す）
-    if (c.showAxes !== false || c.showTicksX !== false || c.showTicksY !== false) {
-      ctx.font = `${baseSize}px sans-serif`;
-      ctx.textAlign    = 'right';
-      ctx.textBaseline = 'top';
-      const oOff = Math.round(3 * padScale);
-      ctx.fillText('O', xAxis - oOff, yAxis + oOff);
-    }
-
     // t 軸目盛り（範囲が広いとき・フォントが大きいときはラベル重複を
     // 避けるため間隔を自動選択 — drawGrid と同じ _tickSteps() を共有）
     const { xStep, yStep } = this._tickSteps();
@@ -359,6 +350,41 @@ class MotionGraphRenderer {
         ctx.beginPath(); ctx.moveTo(xAxis - 3, py); ctx.lineTo(xAxis + 3, py); ctx.stroke();
         ctx.fillText(fmtTick(y, yStep), xAxis - 5, py);
       }
+    }
+
+    // 原点 O（軸も目盛りも非表示なら原点表記も意味がないので消す）
+    //
+    // 既定位置は慣習どおり軸交点の左下 (xAxis - oOff, yAxis + oOff)。
+    // ただし y 目盛り数値も軸の左に右揃えで並ぶため、yMin < 0 でフォントが
+    // 大きい（= 1目盛りのピクセル間隔に対して文字が高い）と、軸直下の
+    // 負の目盛り数値と「O」が同じ列で縦に重なる（nami 波アプリにもある問題）。
+    // O のボックスと目盛り数値のボックスの交差を実測で検知し、重なる場合のみ
+    // O を目盛り数値列のさらに左へ退避させる（目盛り数値は1つも隠さない）。
+    if (c.showAxes !== false || c.showTicksX !== false || c.showTicksY !== false) {
+      const oOff = Math.round(3 * padScale);
+      const oTop = yAxis + oOff;
+      let oX = xAxis - oOff;
+
+      if (c.showTicksY !== false) {
+        const tickFontPx = Math.round(baseSize * 11 / 12);
+        for (let y = Math.ceil(c.yMin / yStep) * yStep; y <= c.yMax + 1e-9; y += yStep) {
+          if (Math.abs(y) < 1e-9 || y > 0) continue; // 衝突しうるのは負側のみ
+          const { py } = this.toPixel(0, y);
+          const tickTop = py - tickFontPx / 2;
+          const tickBottom = py + tickFontPx / 2;
+          if (tickTop < oTop + baseSize && tickBottom > oTop) {
+            // 重なる目盛り数値の実測幅ぶんだけ左へ退避
+            const w = ctx.measureText(fmtTick(y, yStep)).width;
+            oX = xAxis - 5 - w - Math.round(4 * padScale);
+            break;
+          }
+        }
+      }
+
+      ctx.font = `${baseSize}px sans-serif`;
+      ctx.textAlign    = 'right';
+      ctx.textBaseline = 'top';
+      ctx.fillText('O', oX, oTop);
     }
 
     ctx.restore();
