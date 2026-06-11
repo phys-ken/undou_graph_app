@@ -26,6 +26,9 @@ global.localStorage = {
   clear()       { _store.clear(); },
 };
 
+// app.js は styles.js の DISPLAY_PRESETS / DISPLAY_OPTION_KEYS を参照する
+// （index.html と同じロード順）
+vm.runInThisContext(readFileSync(join(__dirname, '..', 'js', 'styles.js'), 'utf8'));
 vm.runInThisContext(readFileSync(join(__dirname, '..', 'js', 'app.js'), 'utf8'));
 
 /** displayOptions の既定値（全項目 true）を返すヘルパー */

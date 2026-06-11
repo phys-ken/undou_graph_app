@@ -55,6 +55,28 @@ const CellSize = z.object({
 // 既定スタイルは bw（CLAUDE.md）。'gray' は使わない（カラーモードは 'color'）。
 const StyleSpec = z.union([z.enum(['bw', 'color']), z.record(z.any())]).optional();
 
+// グラフ内テキストのフォントサイズ（UI のスライダーと同じ 8〜24px）
+const FontSizeSpec = z.number().int().min(8).max(24).optional();
+
+// 表示項目プリセット名（js/styles.js の DISPLAY_PRESETS のキーと一致させる）
+const DisplayPresetSpec = z.enum(['all', 'qualitative', 'qualitative-grid', 'shape-only']).optional();
+
+// 表示項目の個別トグル（js/styles.js の DISPLAY_OPTION_KEYS と一致させる）。
+// displayPreset 適用後にキー単位で上書きされる。
+const DisplaySpec = z.object({
+  showGrid: z.boolean().optional(),
+  showAxes: z.boolean().optional(),
+  showTicksX: z.boolean().optional(),
+  showTicksY: z.boolean().optional(),
+  showUnitX: z.boolean().optional(),
+  showUnitY: z.boolean().optional(),
+  showAxisLabelX: z.boolean().optional(),
+  showAxisLabelY: z.boolean().optional(),
+  showZeroLine: z.boolean().optional(),
+  showLegend: z.boolean().optional(),
+  showUndefinedMark: z.boolean().optional(),
+}).optional();
+
 // グラフ選択肢の誤答は「呼び出し側が完全な MotionGraph 仕様 JSON を渡す」
 // （CONTEXT.md の方針: 本ツールは誤答グラフの生成ロジックを持たない）。
 const ChoicesSpec = z.object({
@@ -83,6 +105,9 @@ const GenerateRequest = z.object({
   grid: GridSpec.optional(),
   cellSize: CellSize,
   style: StyleSpec,
+  fontSize: FontSizeSpec,
+  displayPreset: DisplayPresetSpec,
+  display: DisplaySpec,
 
   // 手描きグラフ（すべてのタイプで必須の「与えられたグラフ」）
   source: GraphSpec,

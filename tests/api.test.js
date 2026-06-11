@@ -576,3 +576,106 @@ describe('セッション・出力の安全性', () => {
     assert.notEqual(r1.sessionId, r2.sessionId);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// 9. fontSize / displayPreset / display（表示オプション — schema v1.1）
+// ═══════════════════════════════════════════════════════════════════════
+describe('validate.js — fontSize / displayPreset / display', () => {
+  const base = { type: 'graphConversion', source: SOURCE_VT, askFor: 'xt' };
+
+  it('fontSize 8〜24 の整数を受け入れる', () => {
+    assert.ok(validateRequest({ ...base, fontSize: 8 }).success);
+    assert.ok(validateRequest({ ...base, fontSize: 16 }).success);
+    assert.ok(validateRequest({ ...base, fontSize: 24 }).success);
+  });
+
+  it('fontSize が範囲外・非整数なら失敗', () => {
+    assert.ok(!validateRequest({ ...base, fontSize: 7 }).success);
+    assert.ok(!validateRequest({ ...base, fontSize: 25 }).success);
+    assert.ok(!validateRequest({ ...base, fontSize: 12.5 }).success);
+  });
+
+  it('displayPreset は4種のプリセット名のみ受け入れる', () => {
+    for (const p of ['all', 'qualitative', 'qualitative-grid', 'shape-only']) {
+      assert.ok(validateRequest({ ...base, displayPreset: p }).success, p);
+    }
+    assert.ok(!validateRequest({ ...base, displayPreset: 'nope' }).success);
+  });
+
+  it('display は boolean のみ受け入れる', () => {
+    assert.ok(validateRequest({ ...base, display: { showGrid: false, showAxisLabelY: false } }).success);
+    assert.ok(!validateRequest({ ...base, display: { showGrid: 'no' } }).success);
+  });
+});
+
+describe('Bridge.generate — fontSize / displayPreset / display', () => {
+  it("displayPreset='shape-only' が gridConfig に展開される", () => {
+    const r = gen({ type: 'graphConversion', source: SOURCE_VT, askFor: 'xt', displayPreset: 'shape-only' }, 'disp1');
+    assert.ok(r.success);
+    assert.equal(r.gridConfig.showAxisLabelX, false);
+    assert.equal(r.gridConfig.showAxisLabelY, false);
+    assert.equal(r.gridConfig.showTicksX, false);
+    assert.equal(r.gridConfig.showUndefinedMark, true); // 全プリセットで ON
+  });
+
+  it('display の個別キーが displayPreset を上書きする', () => {
+    const r = gen({
+      type: 'graphConversion', source: SOURCE_VT, askFor: 'xt',
+      displayPreset: 'shape-only', display: { showGrid: true },
+    }, 'disp2');
+    assert.equal(r.gridConfig.showGrid, true);          // display で上書き
+    assert.equal(r.gridConfig.showAxisLabelY, false);   // プリセット値は維持
+  });
+
+  it('未指定なら gridConfig に showXxx キー自体が入らない（従来動作）', () => {
+    const r = gen({ type: 'graphConversion', source: SOURCE_VT, askFor: 'xt' }, 'disp3');
+    assert.equal(r.gridConfig.showGrid, undefined);
+    assert.equal(r.gridConfig.fontSize, undefined);
+    assert.equal(r.gridConfig.paddingLeft, 52);
+  });
+
+  it('fontSize > 12 で既定 padding が padScale 倍にスケールされる', () => {
+    const r = gen({ type: 'graphConversion', source: SOURCE_VT, askFor: 'xt', fontSize: 24 }, 'disp4');
+    assert.equal(r.gridConfig.fontSize, 24);
+    assert.equal(r.gridConfig.paddingLeft, 104);   // 52 * 2
+    assert.equal(r.gridConfig.paddingRight, 104);
+    assert.equal(r.gridConfig.paddingTop, 64);     // 32 * 2
+    assert.equal(r.gridConfig.paddingBottom, 88);  // 44 * 2
+  });
+
+  it('grid で padding を明示した場合は fontSize があってもそちらを尊重する', () => {
+    const r = gen({
+      type: 'graphConversion', source: SOURCE_VT, askFor: 'xt',
+      fontSize: 24, grid: { paddingLeft: 60 },
+    }, 'disp5');
+    assert.equal(r.gridConfig.paddingLeft, 60);    // 明示値
+    assert.equal(r.gridConfig.paddingRight, 104);  // 未指定側はスケール
+  });
+
+  it("不明な displayPreset は bridge レベルでもエラーになる", () => {
+    // validate を通さず bridge.generate に直接渡しても防御されること
+    assert.throws(() => bridge.generate({
+      type: 'graphConversion', source: SOURCE_VT, askFor: 'xt',
+      displayPreset: 'typo', inline: true,
+    }));
+  });
+
+  it('shape-only の出力 PNG は既定表示と異なる（ラベルが描かれていない）', () => {
+    const plain = bridge.generate({ type: 'graphConversion', source: SOURCE_VT, askFor: 'xt', inline: true });
+    const shape = bridge.generate({ type: 'graphConversion', source: SOURCE_VT, askFor: 'xt', inline: true, displayPreset: 'shape-only' });
+    assert.ok(plain.success && shape.success);
+    assert.notEqual(plain.files.question[0].dataUrl, shape.files.question[0].dataUrl);
+  });
+
+  it('graphChoice + shape-only（概形選択問題のユースケース）が生成できる', () => {
+    const r = gen({
+      type: 'graphChoice', source: SOURCE_VT, askFor: 'xt',
+      displayPreset: 'shape-only', fontSize: 14,
+      choices: { enabled: true, count: 3, distractors: TWO_DISTRACTORS },
+    }, 'disp6');
+    assert.ok(r.success);
+    assert.equal(r.files.choices.length, 3);
+    assert.equal(r.gridConfig.showAxisLabelY, false);
+    assert.equal(r.gridConfig.fontSize, 14);
+  });
+});

@@ -22,7 +22,7 @@ function loadIntoSandbox(sandbox, filePath, exposeNames) {
 //   problems -> 上記すべてを参照（MotionGraph/Kinematics/MotionGraphRenderer/SeededRandom）
 const JS_FILES = [
   { file: 'random.js',     expose: ['SeededRandom'] },
-  { file: 'styles.js',     expose: ['STYLE_PRESETS', 'cloneStylePreset'] },
+  { file: 'styles.js',     expose: ['STYLE_PRESETS', 'cloneStylePreset', 'DISPLAY_PRESETS', 'DISPLAY_OPTION_KEYS'] },
   { file: 'motion.js',     expose: ['MotionGraph'] },
   { file: 'step-motion.js', expose: ['StepMotionGraph'] },
   { file: 'kinematics.js', expose: ['Kinematics'] },

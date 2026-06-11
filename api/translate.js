@@ -21,6 +21,38 @@ function resolveStyle(style, STYLE_PRESETS) {
 
 function buildState(spec, sandbox) {
   const grid = { ...GRID_DEFAULTS, ...(spec.grid || {}) };
+
+  // 表示項目: displayPreset（js/styles.js の DISPLAY_PRESETS）を先に適用し、
+  // spec.display の個別キーで上書きする（UI の「プリセットボタン →
+  // チェックボックス個別変更」と同じメンタルモデル）。どちらも未指定なら
+  // showXxx キー自体を gridConfig に入れない（renderer は showXxx !== false
+  // 判定なので、欠落＝全表示の従来動作のまま）。
+  if (spec.displayPreset) {
+    const preset = sandbox.DISPLAY_PRESETS && sandbox.DISPLAY_PRESETS[spec.displayPreset];
+    if (!preset) {
+      throw new Error(`Unknown displayPreset: '${spec.displayPreset}'. Available: ${Object.keys(sandbox.DISPLAY_PRESETS || {}).join(', ')}`);
+    }
+    Object.assign(grid, preset);
+  }
+  if (spec.display) Object.assign(grid, spec.display);
+
+  // 文字サイズ。fontSize > 12 のときは MotionGraphRenderer のコンストラクタ／
+  // computeCanvasSize と同じ padScale 式で既定 padding も拡大する
+  // （GRID_DEFAULTS の固定 52/32/44 が renderer 側のスケール済み既定値を
+  //   上書きしてしまい、Canvas サイズ計算と描画位置がズレるのを防ぐ）。
+  // 呼び出し側が spec.grid で padding を明示した場合はそちらを尊重する。
+  if (spec.fontSize !== undefined) {
+    grid.fontSize = spec.fontSize;
+    const padScale = Math.max(1, spec.fontSize / 12);
+    if (padScale > 1) {
+      const explicit = spec.grid || {};
+      if (explicit.paddingLeft   === undefined) grid.paddingLeft   = Math.round(GRID_DEFAULTS.paddingLeft   * padScale);
+      if (explicit.paddingRight  === undefined) grid.paddingRight  = Math.round(GRID_DEFAULTS.paddingRight  * padScale);
+      if (explicit.paddingTop    === undefined) grid.paddingTop    = Math.round(GRID_DEFAULTS.paddingTop    * padScale);
+      if (explicit.paddingBottom === undefined) grid.paddingBottom = Math.round(GRID_DEFAULTS.paddingBottom * padScale);
+    }
+  }
+
   return {
     gridConfig: grid,
     styleConfig: resolveStyle(spec.style, sandbox.STYLE_PRESETS),

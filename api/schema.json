@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "1.1",
   "title": "Kinematics Graph Problem Generator API",
   "description": "Generate physics motion-graph (x-t / v-t / a-t) problem images programmatically. POST a problem spec to /api/generate; receive PNG/DOCX/TXT/ZIP file paths (or inline dataURLs).",
   "endpoints": {
@@ -35,6 +35,34 @@
     "description": "Optional fixed cell pixel size. null = auto (580x200 logical px). Range: 15..120."
   },
   "style": "'bw' (default, black-and-white print friendly) | 'color' (browser/color print, blue=x-t green=v-t red=a-t) | custom STYLE_PRESETS-shaped object",
+  "fontSize": {
+    "description": "Optional integer 8..24 (default 12). Font size for all in-graph text (axis labels, tick numbers, origin 'O', legend, '?' markers). When > 12, canvas padding is scaled by fontSize/12 automatically (plot area size is preserved; only the margins grow). Same behavior as the browser UI's 文字サイズ設定 slider."
+  },
+  "displayPreset": {
+    "description": "Optional preset name applying a whole set of display toggles at once (same as the browser UI's 表示項目設定 preset buttons). Applied BEFORE 'display', whose per-key values override the preset. Defined in js/styles.js DISPLAY_PRESETS.",
+    "values": {
+      "all": "Everything visible (default behavior when neither displayPreset nor display is given).",
+      "qualitative": "Hide grid, tick numbers, units and legend; keep axes, axis labels, y=0 baseline and '?' markers. For shape-discussion problems that still name the quantities.",
+      "qualitative-grid": "Same as 'qualitative' but with the grid visible (graph-paper style).",
+      "shape-only": "Hide everything that identifies the physical quantity (axis labels, units, tick numbers, grid, legend); keep only axis arrows, y=0 baseline, the curve and '?' markers. Designed for graphChoice problems where labels would give away which graph kind is shown."
+    }
+  },
+  "display": {
+    "description": "Optional per-key display toggles, overriding the displayPreset (or the all-visible default). All keys boolean. Applied uniformly to every canvas of the problem (source, blank answer grids, model answers and choices).",
+    "keys": {
+      "showGrid": "Grid lines.",
+      "showAxes": "Axis lines + arrows + origin 'O'.",
+      "showTicksX": "Tick marks and numbers on the t axis.",
+      "showTicksY": "Tick marks and numbers on the value axis.",
+      "showUnitX": "The unit part '[s]' of the t-axis label (label text itself stays).",
+      "showUnitY": "The unit part '[m]'/'[m/s]'/'[m/s²]' of the value-axis label.",
+      "showAxisLabelX": "The whole t-axis label ('時刻 t [s]').",
+      "showAxisLabelY": "The whole value-axis label ('速度 v [m/s]' etc.). Turn off together with showAxisLabelX for shape-only choices.",
+      "showZeroLine": "Dashed y=0 baseline drawn when showAxes=false (when axes are visible the t axis itself is the y=0 line, so this key only matters with showAxes=false).",
+      "showLegend": "Legend below the plot.",
+      "showUndefinedMark": "COMBINED toggle for the undefined-instant '?' markers AND the area fill (displacement shading). Kept ON in every preset by design (曖昧さを非表示にしない); can only be turned off here explicitly."
+    }
+  },
   "types": {
     "graphConversion": {
       "name": "Graph conversion — derive other motion graphs from a hand-drawn one",
@@ -110,6 +138,22 @@
           { "kind": "xt", "points": [{ "t": 0, "value": 0 }, { "t": 4, "value": 8 }, { "t": 8, "value": 8 }, { "t": 10, "value": 0 }] }
         ]
       }
+    },
+    "graphChoiceShapeOnly": {
+      "type": "graphChoice",
+      "displayPreset": "shape-only",
+      "fontSize": 14,
+      "source": { "kind": "vt", "x0": 0, "points": [{ "t": 0, "value": 0 }, { "t": 4, "value": 2 }, { "t": 8, "value": 2 }, { "t": 10, "value": 0 }] },
+      "askFor": "xt",
+      "choices": {
+        "enabled": true,
+        "count": 3,
+        "distractors": [
+          { "kind": "xt", "points": [{ "t": 0, "value": 0 }, { "t": 4, "value": 4 }, { "t": 8, "value": 12 }, { "t": 10, "value": 12 }] },
+          { "kind": "xt", "points": [{ "t": 0, "value": 0 }, { "t": 4, "value": 8 }, { "t": 8, "value": 8 }, { "t": 10, "value": 0 }] }
+        ]
+      },
+      "_note": "displayPreset 'shape-only' hides axis labels/units/ticks so students must pick the correct x-t graph by shape alone. 'display' can override single keys, e.g. \"display\": { \"showGrid\": true }."
     }
   }
 }

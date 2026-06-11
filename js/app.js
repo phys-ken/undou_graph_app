@@ -384,58 +384,18 @@ const App = {
   // ------------------------------------------------------------------
   // グラフ表示項目（show/hide トグル + プリセット）
   // ------------------------------------------------------------------
-  DISPLAY_OPTION_KEYS: [
-    'showGrid', 'showAxes',
-    'showTicksX', 'showTicksY',
-    'showUnitX', 'showUnitY',
-    'showAxisLabelX', 'showAxisLabelY',
-    'showZeroLine', 'showLegend', 'showUndefinedMark',
-  ],
+  // 表示項目キー一覧（定義の実体は js/styles.js の DISPLAY_OPTION_KEYS —
+  // REST API 側と共有する単一情報源）
+  DISPLAY_OPTION_KEYS,
 
   /**
-   * 表示項目プリセットの値オブジェクトを返す（純粋関数 — テスト容易性のため分離）。
-   * - all              : 標準（全項目 ON）
-   * - qualitative      : 定性的（軸・ラベル・y=0線・"?"マーカーのみ）
-   * - qualitative-grid : 定性的 + グリッド
-   * - shape-only       : 概形のみ（物理量を特定できる情報を全て隠す —
-   *                      グラフ概形選択問題の選択肢用）
-   * showUndefinedMark は全プリセットで ON（「曖昧さを非表示にしない」原則。
-   * 手動チェックボックスでのみ個別 OFF できる）。
-   * @param {string} preset
-   * @returns {Object|null} 不明なプリセット名は null
+   * 表示項目プリセットの値オブジェクトを返す。
+   * 定義の実体は js/styles.js の DISPLAY_PRESETS（API 側と共有）。
+   * @param {string} preset 'all' | 'qualitative' | 'qualitative-grid' | 'shape-only'
+   * @returns {Object|null} 不明なプリセット名は null（コピーを返すので書き換え可）
    */
   presetDisplayOptions(preset) {
-    const presets = {
-      'all': {
-        showGrid: true, showAxes: true,
-        showTicksX: true, showTicksY: true,
-        showUnitX: true, showUnitY: true,
-        showAxisLabelX: true, showAxisLabelY: true,
-        showZeroLine: true, showLegend: true, showUndefinedMark: true,
-      },
-      'qualitative': {
-        showGrid: false, showAxes: true,
-        showTicksX: false, showTicksY: false,
-        showUnitX: false, showUnitY: false,
-        showAxisLabelX: true, showAxisLabelY: true,
-        showZeroLine: true, showLegend: false, showUndefinedMark: true,
-      },
-      'qualitative-grid': {
-        showGrid: true, showAxes: true,
-        showTicksX: false, showTicksY: false,
-        showUnitX: false, showUnitY: false,
-        showAxisLabelX: true, showAxisLabelY: true,
-        showZeroLine: true, showLegend: false, showUndefinedMark: true,
-      },
-      'shape-only': {
-        showGrid: false, showAxes: true,
-        showTicksX: false, showTicksY: false,
-        showUnitX: false, showUnitY: false,
-        showAxisLabelX: false, showAxisLabelY: false,
-        showZeroLine: true, showLegend: false, showUndefinedMark: true,
-      },
-    };
-    return presets[preset] ? Object.assign({}, presets[preset]) : null;
+    return DISPLAY_PRESETS[preset] ? Object.assign({}, DISPLAY_PRESETS[preset]) : null;
   },
 
   _loadDisplayOptions() {

@@ -88,3 +88,65 @@ const STYLE_PRESETS = {
 function cloneStylePreset(preset) {
   return JSON.parse(JSON.stringify(preset));
 }
+
+/**
+ * グラフ表示項目トグルのキー一覧（MotionGraphRenderer の config.showXxx に対応）
+ *
+ * showUndefinedMark は「未定義 "?" マーカー」と「面積塗りつぶし」の統合トグル
+ * （drawUndefinedMarker / drawFilledArea の両方が同じキーを参照する）。
+ * showZeroLine は showAxes=false のときだけ意味を持つ（通常は t 軸が y=0 線を兼ねる）。
+ *
+ * UI（App.displayOptions / index.html のチェックボックス）と
+ * REST API（spec.display / spec.displayPreset）の両方から参照される
+ * 単一情報源としてここに置く（app.js は API サンドボックスに読み込まれないため）。
+ */
+const DISPLAY_OPTION_KEYS = [
+  'showGrid', 'showAxes',
+  'showTicksX', 'showTicksY',
+  'showUnitX', 'showUnitY',
+  'showAxisLabelX', 'showAxisLabelY',
+  'showZeroLine', 'showLegend', 'showUndefinedMark',
+];
+
+/**
+ * 表示項目プリセット定義
+ *
+ * - all              : 標準（全項目 ON）
+ * - qualitative      : 定性的（軸・軸ラベル・y=0線・"?"マーカーのみ）
+ * - qualitative-grid : 定性的 + グリッド
+ * - shape-only       : 概形のみ（軸ラベル・単位・目盛・凡例など、どの物理量の
+ *                      グラフかを特定できる情報を全て隠す — グラフ概形選択問題用）
+ *
+ * showUndefinedMark は全プリセットで ON（「曖昧さを非表示にしない」原則。
+ * 手動トグル／API の display 個別指定でのみ OFF にできる）。
+ */
+const DISPLAY_PRESETS = {
+  'all': {
+    showGrid: true, showAxes: true,
+    showTicksX: true, showTicksY: true,
+    showUnitX: true, showUnitY: true,
+    showAxisLabelX: true, showAxisLabelY: true,
+    showZeroLine: true, showLegend: true, showUndefinedMark: true,
+  },
+  'qualitative': {
+    showGrid: false, showAxes: true,
+    showTicksX: false, showTicksY: false,
+    showUnitX: false, showUnitY: false,
+    showAxisLabelX: true, showAxisLabelY: true,
+    showZeroLine: true, showLegend: false, showUndefinedMark: true,
+  },
+  'qualitative-grid': {
+    showGrid: true, showAxes: true,
+    showTicksX: false, showTicksY: false,
+    showUnitX: false, showUnitY: false,
+    showAxisLabelX: true, showAxisLabelY: true,
+    showZeroLine: true, showLegend: false, showUndefinedMark: true,
+  },
+  'shape-only': {
+    showGrid: false, showAxes: true,
+    showTicksX: false, showTicksY: false,
+    showUnitX: false, showUnitY: false,
+    showAxisLabelX: false, showAxisLabelY: false,
+    showZeroLine: true, showLegend: false, showUndefinedMark: true,
+  },
+};
